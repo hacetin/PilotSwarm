@@ -176,6 +176,30 @@ export interface ModelProviderConfig {
     apiKey?: string;
     /** Azure API version (type=azure only). Defaults to "2024-10-21". */
     apiVersion?: string;
+    /**
+     * Wire API for OpenAI/Azure BYOK providers: "responses" routes model
+     * traffic to `/v1/responses`, "completions" (the SDK default) to
+     * `/v1/chat/completions`. Ignored for type=github (native CAPI transport)
+     * and type=anthropic.
+     *
+     * WHY THIS EXISTS — gpt-5.6 tools + reasoning bug:
+     * The GPT-5.6 model family (sol/luna/terra) returns HTTP 400 on the
+     * completions wire whenever a request carries BOTH function tools and a
+     * non-`none` `reasoning_effort`:
+     *   "Function tools with reasoning_effort are not supported for
+     *    gpt-5.6-* in /v1/chat/completions. To use function tools, use
+     *    /v1/responses or set reasoning_effort to 'none'."
+     * This is an UPSTREAM OpenAI constraint, not a PilotSwarm or copilot-CLI
+     * regression — it reproduces identically against raw Azure AI Foundry and
+     * against GitHub Copilot CAPI. The API itself states the only two remedies:
+     * call `/v1/responses`, or send `reasoning_effort: none`. `/v1/responses`
+     * accepts tools + reasoning together (verified 200 end-to-end), so setting
+     * `wireApi: "responses"` on a BYOK gpt-5.6 provider is what lets sol keep
+     * its reasoning while using tools. The github/CAPI path cannot be steered
+     * from here (native transport), so gpt-5.6-with-reasoning must be served
+     * through this BYOK route.
+     */
+    wireApi?: "completions" | "responses";
     /** Available models. Can be plain strings (legacy) or ModelEntry objects with descriptions. */
     models: (string | ModelEntry)[];
 }
@@ -247,6 +271,12 @@ export interface ResolvedProvider {
         baseUrl: string;
         apiKey?: string;
         azure?: { apiVersion?: string };
+        /**
+         * Copilot SDK ProviderConfig.wireApi. "responses" routes this BYOK
+         * provider through `/v1/responses` — required for gpt-5.6 models to use
+         * tools together with reasoning (see ModelProviderConfig.wireApi).
+         */
+        wireApi?: "completions" | "responses";
     };
 }
 
@@ -440,6 +470,10 @@ export class ModelProviderRegistry {
                 ...(provider.type === "azure" && {
                     azure: { apiVersion: provider.apiVersion || "2024-10-21" },
                 }),
+                // Route to /v1/responses when the catalog asks for it. Lets
+                // gpt-5.6 BYOK models use tools + reasoning without the
+                // completions-wire 400 (see ModelProviderConfig.wireApi).
+                ...(provider.wireApi ? { wireApi: provider.wireApi } : {}),
             },
         };
     }

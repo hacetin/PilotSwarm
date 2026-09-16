@@ -189,11 +189,21 @@
             "type": "openai",
             "baseUrl": "__FOUNDRY_ENDPOINT__/openai/v1",
             "apiKey": "env:AZURE_OAI_KEY",
+            "wireApi": "responses",
             "models": [
                 {
                     "name": "gpt-5.6-sol",
-                    "description": "GPT-5.6 Sol via Azure AI Foundry. High-capability GPT-5.6 variant for advanced reasoning and coding. Deployment must be created on the Foundry account (deploy/envs/local/<env>/foundry-deployments.json).",
+                    "description": "GPT-5.6 Sol via Azure AI Foundry. High-capability GPT-5.6 variant for advanced reasoning and coding. Routed via /v1/responses (provider wireApi) so tools + reasoning work together — the completions wire returns HTTP 400 for gpt-5.6 tools + reasoning_effort. Deployment must be created on the Foundry account (deploy/envs/local/<env>/foundry-deployments.json).",
                     "cost": "high",
+                    "supportedReasoningEfforts": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "max"
+                    ],
+                    "defaultReasoningEffort": "medium",
                     "supportedContextTiers": [
                         "default",
                         "long_context"

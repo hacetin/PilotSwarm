@@ -453,6 +453,10 @@ export function resolveProviderCredential(
             baseUrl: sdkType === "azure" ? `${baseUrl.replace(/\/$/, "")}/deployments/${modelName}` : baseUrl,
             ...(workloadIdentity ? {} : { apiKey }),
             ...(sdkType === "azure" ? { azure: { apiVersion: apiVersion ?? "2024-10-21" } } : {}),
+            // Route to /v1/responses when the provider type asks for it. Lets
+            // gpt-5.6 BYOK models use tools + reasoning without the
+            // completions-wire 400 (see ModelProviderConfig.wireApi).
+            ...(type.wireApi ? { wireApi: type.wireApi } : {}),
         },
     } as ResolvedProvider;
 }
