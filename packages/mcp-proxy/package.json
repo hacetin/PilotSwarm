@@ -33,7 +33,7 @@
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.28.0",
         "express": "^5.1.0",
-        "pilotswarm-sdk": "0.5.63",
+        "pilotswarm-sdk": "*",
         "zod": "^4.0.0"
     },
     "devDependencies": {

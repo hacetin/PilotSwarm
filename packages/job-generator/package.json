@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@azure/identity": "^4.13.1",
-    "pilotswarm-sdk": "0.5.63"
+    "pilotswarm-sdk": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
