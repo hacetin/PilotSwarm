@@ -501,7 +501,23 @@ async function main() {
   // off-path keys get auto-stubbed to `unused`. Adding a new overlay key
   // is a one-line change in overlay-contracts.mjs — deploy.mjs picks it
   // up automatically.
-  const { missing: missingRequired, combo: comboErrors } = validateRequiredEnv({ edgeMode, tlsSource, env });
+  const requestedSteps = steps == null
+    ? null
+    : new Set(String(steps).split(",").map((step) => step.trim()).filter(Boolean));
+  const deploysPortalRuntime =
+    (service === "portal" || service === "all")
+    && (
+      requestedSteps === null
+      || requestedSteps.has("manifests")
+      || requestedSteps.has("rollout")
+      || requestedSteps.has("noop")
+    );
+  const { missing: missingRequired, combo: comboErrors } = validateRequiredEnv({
+    edgeMode,
+    tlsSource,
+    env,
+    enforcePortalAuth: deploysPortalRuntime,
+  });
   if (missingRequired.length > 0 || comboErrors.length > 0) {
     if (missingRequired.length > 0) {
       log(
@@ -512,10 +528,8 @@ async function main() {
           `or hand-edit deploy/envs/local/${envName}/.env.`,
       );
     }
-    // Combo errors render as named errors with a hint that points operators
-    // at the env file / docs — NOT at the scaffolder (re-running new-env.mjs
-    // would clobber operator edits, and the underlying problem isn't an
-    // unset key, it's a bad combination).
+    // Combination errors render as named errors with a targeted remediation
+    // hint rather than the generic missing-key scaffolder guidance.
     for (const e of comboErrors) {
       log("err", `[${e.code}] ${e.message} ${e.hint}`);
     }

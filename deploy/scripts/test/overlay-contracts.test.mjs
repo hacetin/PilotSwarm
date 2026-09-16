@@ -16,6 +16,7 @@ import {
   resolveOverlayKey,
   getContract,
   validateRequiredEnv,
+  validatePortalAuthCombo,
   validateVpnGatewayCombo,
   applyStubKeys,
   EDGE_MODES,
@@ -113,21 +114,35 @@ test("PORTAL_HOSTNAME is tracked as a bicep-output on all three overlays", () =>
 // === validateRequiredEnv ====================================================
 
 test("validateRequiredEnv passes on a fully-populated afd-akv env", () => {
-  const env = { SSL_CERT_DOMAIN_SUFFIX: "portal.example.com" };
+  const env = {
+    SSL_CERT_DOMAIN_SUFFIX: "portal.example.com",
+    PORTAL_AUTH_PROVIDER: "entra",
+    PORTAL_AUTH_ENTRA_TENANT_ID: "tenant-id",
+    PORTAL_AUTH_ENTRA_CLIENT_ID: "client-id",
+    PORTAL_AUTH_ALLOW_UNAUTHENTICATED: "false",
+  };
   const result = validateRequiredEnv({ edgeMode: "afd", tlsSource: "akv", env });
   assert.deepEqual(result.missing, []);
   assert.deepEqual(result.combo, []);
 });
 
 test("validateRequiredEnv reports SSL_CERT_DOMAIN_SUFFIX missing on afd-akv", () => {
-  const env = {};
+  const env = {
+    PORTAL_AUTH_PROVIDER: "entra",
+    PORTAL_AUTH_ENTRA_TENANT_ID: "tenant-id",
+    PORTAL_AUTH_ENTRA_CLIENT_ID: "client-id",
+  };
   const { missing, combo } = validateRequiredEnv({ edgeMode: "afd", tlsSource: "akv", env });
   assert.ok(missing.includes("SSL_CERT_DOMAIN_SUFFIX"));
   assert.deepEqual(combo, []);
 });
 
 test("validateRequiredEnv reports ACME_EMAIL missing on afd-letsencrypt", () => {
-  const env = {};
+  const env = {
+    PORTAL_AUTH_PROVIDER: "entra",
+    PORTAL_AUTH_ENTRA_TENANT_ID: "tenant-id",
+    PORTAL_AUTH_ENTRA_CLIENT_ID: "client-id",
+  };
   const { missing } = validateRequiredEnv({
     edgeMode: "afd",
     tlsSource: "letsencrypt",
@@ -137,7 +152,12 @@ test("validateRequiredEnv reports ACME_EMAIL missing on afd-letsencrypt", () => 
 });
 
 test("validateRequiredEnv catches malformed ACME_EMAIL", () => {
-  const env = { ACME_EMAIL: "not-an-email" };
+  const env = {
+    ACME_EMAIL: "not-an-email",
+    PORTAL_AUTH_PROVIDER: "entra",
+    PORTAL_AUTH_ENTRA_TENANT_ID: "tenant-id",
+    PORTAL_AUTH_ENTRA_CLIENT_ID: "client-id",
+  };
   const { missing } = validateRequiredEnv({
     edgeMode: "afd",
     tlsSource: "letsencrypt",
@@ -156,6 +176,83 @@ test("validateRequiredEnv requires HOST/PRIVATE_DNS_ZONE/AKS_VNET_ID for private
   for (const k of ["HOST", "PRIVATE_DNS_ZONE", "AKS_VNET_ID"]) {
     assert.ok(missing.includes(k), `expected ${k} missing, got ${missing.join(",")}`);
   }
+});
+
+// === validatePortalAuthCombo ================================================
+
+test("validatePortalAuthCombo rejects unset auth on a public AFD portal", () => {
+  assert.deepEqual(
+    validatePortalAuthCombo({
+      edgeMode: "afd",
+      env: {
+        PORTAL_AUTH_PROVIDER: "__PS_UNSET__",
+        PORTAL_AUTH_ALLOW_UNAUTHENTICATED: "__PS_UNSET__",
+      },
+    }),
+    ["public-portal-auth-provider-required"],
+  );
+});
+
+test("validatePortalAuthCombo requires complete Entra configuration", () => {
+  assert.deepEqual(
+    validatePortalAuthCombo({
+      edgeMode: "afd",
+      env: {
+        PORTAL_AUTH_PROVIDER: "entra",
+        PORTAL_AUTH_ENTRA_TENANT_ID: "tenant-id",
+      },
+    }),
+    ["public-portal-entra-requires-config"],
+  );
+});
+
+test("validatePortalAuthCombo rejects anonymous access with an authenticated provider", () => {
+  assert.deepEqual(
+    validatePortalAuthCombo({
+      edgeMode: "afd",
+      env: {
+        PORTAL_AUTH_PROVIDER: "entra",
+        PORTAL_AUTH_ENTRA_TENANT_ID: "tenant-id",
+        PORTAL_AUTH_ENTRA_CLIENT_ID: "client-id",
+        PORTAL_AUTH_ALLOW_UNAUTHENTICATED: "true",
+      },
+    }),
+    ["public-portal-auth-allows-anonymous"],
+  );
+});
+
+test("validatePortalAuthCombo requires explicit acknowledgement for a public no-auth sandbox", () => {
+  assert.deepEqual(
+    validatePortalAuthCombo({
+      edgeMode: "afd",
+      env: { PORTAL_AUTH_PROVIDER: "none" },
+    }),
+    ["public-portal-no-auth-not-explicit"],
+  );
+  assert.deepEqual(
+    validatePortalAuthCombo({
+      edgeMode: "afd",
+      env: {
+        PORTAL_AUTH_PROVIDER: "none",
+        PORTAL_AUTH_ALLOW_UNAUTHENTICATED: "true",
+      },
+    }),
+    [],
+  );
+});
+
+test("validatePortalAuthCombo leaves private portals unchanged", () => {
+  assert.deepEqual(validatePortalAuthCombo({ edgeMode: "private", env: {} }), []);
+});
+
+test("validateRequiredEnv can skip portal auth for infrastructure-only deployment", () => {
+  const { combo } = validateRequiredEnv({
+    edgeMode: "afd",
+    tlsSource: "letsencrypt",
+    env: { ACME_EMAIL: "operator@example.com" },
+    enforcePortalAuth: false,
+  });
+  assert.deepEqual(combo, []);
 });
 
 // === applyStubKeys ==========================================================
@@ -380,4 +477,3 @@ test("VPN combo-error hints never reference the nonexistent deploy/docs/ tree", 
     "overlay-contracts.mjs still contains a deploy/docs/ reference",
   );
 });
-

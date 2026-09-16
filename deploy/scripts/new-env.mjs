@@ -861,6 +861,9 @@ export function renderLocalEnv({ name, targets, secrets, portalConfig, templateT
     `# portal-env ConfigMap (envFrom configMapRef in deployment.yaml). Leave`,
     `# blank to render the ${SEED_SECRETS_UNSET_SENTINEL} sentinel — the portal`,
     `# strips sentinel values at startup so the key appears truly unset.`,
+    `# Public EDGE_MODE=afd stamps must configure an auth provider. An intentionally`,
+    `# open sandbox requires the explicit pair PORTAL_AUTH_PROVIDER=none and`,
+    `# PORTAL_AUTH_ALLOW_UNAUTHENTICATED=true; implicit no-auth deploys are rejected.`,
     ``,
   ];
   for (const { env: key } of PORTAL_CONFIG_KEYS) {
