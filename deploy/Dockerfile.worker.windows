@@ -26,6 +26,14 @@ FROM ${WORKER_BASE_IMAGE}
 
 SHELL ["powershell", "-NoProfile", "-Command", "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';"]
 
+# Build-time steps (npm ci, COPY into C:\app) require admin and MUST NOT depend
+# on the trailing USER of WORKER_BASE_IMAGE. The plain worker base leaves the
+# default (ContainerAdministrator), but composed tool bases (e.g. the DsMainDev
+# uv/windbg toolsbase) end on `USER ContainerUser`; without this reset `npm ci`
+# runs unprivileged and fails. The image drops back to ContainerUser at the end
+# for least-privilege runtime, so this only affects build steps.
+USER ContainerAdministrator
+
 WORKDIR C:\app
 
 # Workspace root + package manifests first (same order as Dockerfile.worker for
