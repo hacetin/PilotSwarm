@@ -288,6 +288,45 @@ var platformCustomRules = [
       }
     ]
   }
+  // Job-generator registration/update API (POST/PUT /api/v1/job-generators).
+  // Same false-positive class as /messages and /api/v1/sessions: the body
+  // carries a job-generator definition whose `definition.sourceConfig.wiql`
+  // field is a literal Azure DevOps WIQL query (SELECT ... FROM WorkItems
+  // WHERE ...) — actual SQL text — plus an agent systemMessage and repository
+  // URLs. DRS 2.1 scores these as SQLi and the inbound-anomaly-score rule
+  // (949110) blocks the request. RequestBodyJsonArgNames exclusions do NOT
+  // suppress 949110 here — verified live on this stamp: with a
+  // `StartsWith definition.` exclusion applied, the individual SQLI rules
+  // (942100/942120/942380/942410/942480, MS-ThreatIntel-SQLI) still fired under
+  // AnomalyScoring and 949110 still blocked /api/v1/job-generators — so we use
+  // the same path-scoped Allow that already works for /messages and
+  // /api/v1/sessions. HACK/TODO/REVISIT-ON-OBO: all caveats on
+  // AllowMcpMessagesPath apply verbatim — this disables managed-rule inspection
+  // for the whole /api/v1/job-generators path for every caller; acceptable only
+  // because the endpoint is behind Entra auth and the block is a pure false
+  // positive. Under On-Behalf-Of auth this path MUST regain real body
+  // inspection (re-scope to per-identity / rule-ID exclusion); do not ship OBO
+  // with this Allow in place.
+  {
+    name: 'AllowJobGeneratorsPath'
+    priority: 97
+    enabledState: 'Enabled'
+    ruleType: 'MatchRule'
+    rateLimitDurationInMinutes: 0
+    rateLimitThreshold: 0
+    action: 'Allow'
+    matchConditions: [
+      {
+        matchVariable: 'RequestUri'
+        operator: 'Contains'
+        negateCondition: false
+        matchValue: [
+          '/api/v1/job-generators'
+        ]
+        transforms: []
+      }
+    ]
+  }
 ]
 
 // ==============================================================================

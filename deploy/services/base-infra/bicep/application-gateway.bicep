@@ -229,6 +229,44 @@ var platformSeedRules = [
       }
     ]
   }
+  // Job-generator registration/update API (POST/PUT /api/v1/job-generators).
+  // Same false-positive class as /messages and /api/v1/sessions: the body
+  // carries a job-generator definition whose `definition.sourceConfig.wiql`
+  // field is a literal Azure DevOps WIQL query (SELECT ... FROM WorkItems
+  // WHERE ...) plus an agent systemMessage and repositoryUrl, which OWASP 3.2
+  // scores as SQLi/RFI. Verified live: after the Front Door edge stopped
+  // blocking (its own AllowJobGeneratorsPath), the WIQL POST was blocked here
+  // instead ("Microsoft-Azure-Application-Gateway/v2" 403) — both edges must
+  // agree or the block just moves from AFD to AppGw. Arg exclusions do NOT
+  // reliably suppress the anomaly-score block, so both edges use the same
+  // path-scoped Allow. HACK/TODO/REVISIT-ON-OBO: all AllowMcpMessagesPath
+  // caveats above apply verbatim — this disables managed-rule inspection for the
+  // whole /api/v1/job-generators path for every caller; acceptable only because
+  // the endpoint is behind Entra auth and the block is a pure false positive.
+  // Under OBO this path MUST regain real body inspection; do not ship OBO with
+  // this Allow.
+  {
+    name: 'AllowJobGeneratorsPath'
+    priority: 97
+    ruleType: 'MatchRule'
+    action: 'Allow'
+    state: 'Enabled'
+    matchConditions: [
+      {
+        matchVariables: [
+          {
+            variableName: 'RequestUri'
+          }
+        ]
+        operator: 'Contains'
+        negationConditon: false
+        matchValues: [
+          '/api/v1/job-generators'
+        ]
+        transforms: []
+      }
+    ]
+  }
 ]
 var mergedCustomRules = concat(platformSeedRules, autoSeedRules, appgwWafCustomRules)
 
