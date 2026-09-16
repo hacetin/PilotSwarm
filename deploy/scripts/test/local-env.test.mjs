@@ -15,6 +15,8 @@ import {
   validateLocalEnvName,
   RESERVED_ENV_NAMES,
   REPO_ROOT,
+  expandStampEnvDir,
+  STAMP_ENV_DIR_TOKEN,
 } from "../lib/common.mjs";
 
 const ENV_DIR = join(REPO_ROOT, "deploy", "envs");
@@ -312,4 +314,73 @@ test("loadEnv() rejects reserved env names", () => {
   for (const r of RESERVED_ENV_NAMES) {
     assert.throws(() => loadEnv(r), /reserved env name/);
   }
+});
+
+test("loadEnv expands ${STAMP_ENV_DIR} to the stamp env file's directory", () => {
+  cleanup();
+  const dir = mkdtempSync(join(tmpdir(), "ps-stamp-dir-"));
+  const stampDir = join(dir, "stamps");
+  const stampFile = join(stampDir, "the-stamp.env");
+  try {
+    mkdirSync(stampDir, { recursive: true });
+    mkdirSync(dirname(TEST_FILE), { recursive: true });
+    writeFileSync(TEST_FILE, `STAMP_ENV_FILE=${stampFile}\nSECRET=local\n`, "utf8");
+    // The stamp repo injects a path anchored to its own directory.
+    writeFileSync(
+      stampFile,
+      "WAF_CUSTOM_RULES_FILE=${STAMP_ENV_DIR}/waf/rules.json\n",
+      "utf8",
+    );
+
+    const { env } = loadEnv(TEST_NAME, { processEnv: {} });
+
+    // Token expands to the stamp dir; the suffix keeps its literal separators
+    // (mixed separators resolve fine downstream). Compare normalized.
+    assert.equal(
+      resolve(env.WAF_CUSTOM_RULES_FILE),
+      resolve(join(stampDir, "waf", "rules.json")),
+    );
+    assert.equal(env.SECRET, "local"); // untokenized values untouched
+  } finally {
+    cleanup();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadEnv throws when ${STAMP_ENV_DIR} is used without a stamp env file", () => {
+  cleanup();
+  try {
+    mkdirSync(dirname(TEST_FILE), { recursive: true });
+    // Token used in the local stub itself, with no STAMP_ENV_FILE pointer.
+    writeFileSync(
+      TEST_FILE,
+      "WAF_CUSTOM_RULES_FILE=${STAMP_ENV_DIR}/waf/rules.json\n",
+      "utf8",
+    );
+    assert.throws(
+      () => loadEnv(TEST_NAME, { processEnv: {} }),
+      /uses \$\{STAMP_ENV_DIR\} but no stamp env file is in play/,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("expandStampEnvDir replaces every occurrence and leaves other values intact", () => {
+  const env = {
+    A: `${STAMP_ENV_DIR_TOKEN}/one/${STAMP_ENV_DIR_TOKEN}/two`,
+    B: "plain",
+    C: 123, // non-string values are skipped, not coerced
+  };
+  expandStampEnvDir(env, join("/base", "stamp.env"));
+  assert.equal(env.A, join("/base") + "/one/" + join("/base") + "/two");
+  assert.equal(env.B, "plain");
+  assert.equal(env.C, 123);
+});
+
+test("expandStampEnvDir throws when token used but stampEnvFile is null", () => {
+  assert.throws(
+    () => expandStampEnvDir({ X: `${STAMP_ENV_DIR_TOKEN}/f.json` }, null),
+    /uses \$\{STAMP_ENV_DIR\} but no stamp env file is in play/,
+  );
 });

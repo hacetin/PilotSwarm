@@ -407,17 +407,23 @@ async function deployOne({ moduleName, service, envName, env, region, stagingDir
 
   // global-infra optionally accepts a custom-rules JSON file via env var
   // WAF_CUSTOM_RULES_FILE — passed straight through to az as
-  // `--parameters customRules=@<file>`. The file is gitignored (recommended
-  // location: deploy/envs/local/<env>/waf-custom-rules.json) so site-specific
-  // rules (e.g. corpnet allow-lists) never need to be checked in. The bicep
-  // param defaults to [] when unset so this is purely additive.
+  // `--parameters customRules=@<file>`. The value is resolved as: an absolute
+  // path as-is; a `${STAMP_ENV_DIR}`-anchored path (expanded at env load) so an
+  // external stamp/composition repo can inject rules it owns, colocated with
+  // its stamp env file; otherwise relative to the PilotSwarm repo root. This is
+  // the supported entry point for site-specific rules (e.g. a corpnet ingress
+  // allow-list) that a stamp wants versioned outside PilotSwarm. In-repo
+  // operators may instead point at a gitignored file under
+  // deploy/envs/local/<env>/. The bicep param defaults to [] so this is
+  // purely additive.
   if (moduleName === "global-infra" && env.WAF_CUSTOM_RULES_FILE) {
     const raw = env.WAF_CUSTOM_RULES_FILE;
     const abs = isAbsolute(raw) ? raw : join(REPO_ROOT, raw);
     if (!existsSync(abs)) {
       throw new Error(
         `WAF_CUSTOM_RULES_FILE points to a missing file: ${abs}. ` +
-          `Either unset it or create the JSON array file (gitignored under deploy/envs/local/).`,
+          `Either unset it or create the JSON array file. External stamp repos ` +
+          `can anchor the path with \${STAMP_ENV_DIR} to colocate it with the stamp env file.`,
       );
     }
     baseArgs.push("--parameters", `customRules=@${abs}`);

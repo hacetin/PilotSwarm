@@ -146,6 +146,10 @@ export function applyProcessEnvOverrides(env, processEnv = process.env) {
 // process.env values override keys present after file composition (so a
 // contributor can `SUBSCRIPTION_ID=... node deploy.mjs ...` for ad-hoc
 // tests). We do NOT merge the entire process environment.
+//
+// Finally, any value containing the literal token `${STAMP_ENV_DIR}` is
+// expanded to the resolved stamp env file's directory (see expandStampEnvDir),
+// letting an external stamp repo inject param files it owns relative to itself.
 export function loadEnv(
   envName,
   { overlayEnvFile = null, overlayEnvFiles = null, processEnv = process.env } = {},
@@ -198,6 +202,17 @@ export function loadEnv(
 
   applyProcessEnvOverrides(merged, processEnv);
 
+  // `${STAMP_ENV_DIR}` expansion. A stamp/composition repo (referenced via
+  // STAMP_ENV_FILE) can inject external param FILES it owns — e.g. WAF custom
+  // rules, agent-pool JSON — colocated with its stamp env file, without hard-
+  // coding a machine-specific absolute path or checking the file into
+  // PilotSwarm. Any value that contains the literal token `${STAMP_ENV_DIR}`
+  // has it replaced with the directory of the resolved stamp env file. This is
+  // the one supported interpolation (parseEnvFile is otherwise literal); it is
+  // opt-in (values without the token are untouched) and fail-closed (using it
+  // with no stamp env file in play throws rather than silently mis-resolving).
+  expandStampEnvDir(merged, resolvedStampEnvFile);
+
   return {
     env: merged,
     sources: {
@@ -208,6 +223,30 @@ export function loadEnv(
       overlays: resolvedOverlays,
     },
   };
+}
+
+// Token substituted in env values with the directory of the resolved stamp env
+// file (see loadEnv). Kept as a named constant so the deploy scripts and their
+// tests share one spelling.
+export const STAMP_ENV_DIR_TOKEN = "${STAMP_ENV_DIR}";
+
+// Replace every occurrence of STAMP_ENV_DIR_TOKEN in the env map's values with
+// the stamp env file's directory. Throws a clear, actionable error if the token
+// is used without a stamp env file having been resolved.
+export function expandStampEnvDir(env, stampEnvFile) {
+  const stampEnvDir = stampEnvFile ? dirname(stampEnvFile) : null;
+  for (const key of Object.keys(env)) {
+    const value = env[key];
+    if (typeof value !== "string" || !value.includes(STAMP_ENV_DIR_TOKEN)) continue;
+    if (!stampEnvDir) {
+      throw new Error(
+        `${key} uses ${STAMP_ENV_DIR_TOKEN} but no stamp env file is in play. ` +
+          `Set STAMP_ENV_FILE to the external stamp env file that anchors this path.`,
+      );
+    }
+    env[key] = value.split(STAMP_ENV_DIR_TOKEN).join(stampEnvDir);
+  }
+  return env;
 }
 
 // ───────────────────────── Subprocess wrapper (FR-011) ─────────────────────────
