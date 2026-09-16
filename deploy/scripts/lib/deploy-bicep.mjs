@@ -225,6 +225,11 @@ async function deployOne({ moduleName, service, envName, env, region, stagingDir
   // that every fresh stamp would otherwise hit on the manifests upload).
   // The enterprise path doesn't pass this — its principal already has the role via the
   // enterprise deploy UAMI assignment, and the Bicep param defaults to empty.
+  // Declared at function scope (not inside the base-infra block below) so the
+  // reconcileAgentPools() preflight further down — which runs after that block
+  // has closed — can still see it. Assigned from AGENT_POOLS_FILE inside the
+  // base-infra block; stays null for every other module.
+  let desiredAgentPools = null;
   if (moduleName === "base-infra") {
     const localPrincipal = resolveLocalDeploymentPrincipal();
     if (localPrincipal) {
@@ -343,7 +348,8 @@ async function deployOne({ moduleName, service, envName, env, region, stagingDir
     // it ADDS any declared-but-missing pool and, gated behind --replace-pools,
     // REPLACES a pool whose immutable shape changed. After that the PUT below
     // is a no-op for these pools. See reconcileAgentPools() at the bottom.
-    let desiredAgentPools = null;
+    // See the function-scope declaration above; only the assignment lives here.
+    desiredAgentPools = null;
     if (env.AGENT_POOLS_FILE) {
       const raw = env.AGENT_POOLS_FILE;
       const abs = isAbsolute(raw) ? raw : join(REPO_ROOT, raw);
