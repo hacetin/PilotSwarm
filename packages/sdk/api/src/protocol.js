@@ -389,11 +389,17 @@ export function artifactDownloadPath(sessionId, filename) {
 }
 
 export class ApiError extends Error {
-    constructor(message, { code = "INTERNAL_ERROR", status = 500, candidates = undefined } = {}) {
+    constructor(message, { code = "INTERNAL_ERROR", status = 500, candidates = undefined, diagnostics = undefined } = {}) {
         super(message);
         this.name = "ApiError";
         this.code = code;
         this.status = status;
         if (Array.isArray(candidates)) this.candidates = candidates;
+        // `diagnostics` (edge/infra response headers + a bounded body snippet)
+        // helps callers tell an edge/WAF rejection apart from an application
+        // error. Safe to retain: the API server scrubs 5xx bodies to a generic
+        // message (raw messages/stacks stay in server logs), so captured content
+        // is our own error envelope or edge/infra boilerplate, not app internals.
+        if (diagnostics) this.diagnostics = diagnostics;
     }
 }
