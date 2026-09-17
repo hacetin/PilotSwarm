@@ -21,6 +21,7 @@ import {
   computeTemplateHash,
   computeParamsHash,
   computeExternalParamsHash,
+  computeInlineParamsHash,
   loadMarker,
   saveMarker,
   shouldSkipDeploy,
@@ -131,6 +132,24 @@ test("computeExternalParamsHash: missing file busts vs present file", () => {
     { param: "additionalAgentPools", path: join(dir, "gone.json") },
   ]);
   assert.notEqual(present, missing);
+});
+
+test("computeInlineParamsHash: empty values preserve the legacy marker state", () => {
+  assert.equal(computeInlineParamsHash([]), "");
+  assert.equal(computeInlineParamsHash(undefined), "");
+});
+
+test("computeInlineParamsHash: changes with a devbox principal", () => {
+  const first = computeInlineParamsHash([
+    { param: "devboxPrincipalId", value: "group-1" },
+    { param: "devboxPrincipalType", value: "Group" },
+  ]);
+  const second = computeInlineParamsHash([
+    { param: "devboxPrincipalType", value: "Group" },
+    { param: "devboxPrincipalId", value: "group-2" },
+  ]);
+  assert.notEqual(first, second);
+  assert.match(first, /^[a-f0-9]{64}$/);
 });
 
 test("loadMarker / saveMarker round-trip", () => {
@@ -264,6 +283,26 @@ test("shouldSkipDeploy → skip when external params hash matches", () => {
   assert.equal(d.reason, "marker hit");
 });
 
+test("shouldSkipDeploy → no skip when inline params hash differs", () => {
+  setupModule("// dummy\n");
+  saveMarker(ENV_NAME, MOD_NAME, {
+    templateHash: "t1",
+    paramsHash: "p1",
+    inlineParamsHash: "OLD",
+  });
+  writeFileSync(_internals.bicepOutputsCachePath(ENV_NAME), "{}");
+  const d = shouldSkipDeploy({
+    envName: ENV_NAME,
+    moduleName: MOD_NAME,
+    templateHash: "t1",
+    paramsHash: "p1",
+    inlineParamsHash: "NEW",
+    force: false,
+  });
+  assert.equal(d.skip, false);
+  assert.equal(d.reason, "inline params changed");
+});
+
 test("shouldSkipDeploy → back-compat: old marker (no externalParamsHash) still skips a no-external module", () => {
   setupModule("// dummy\n");
   // Marker written before externalParamsHash existed.
@@ -275,6 +314,7 @@ test("shouldSkipDeploy → back-compat: old marker (no externalParamsHash) still
     templateHash: "t1",
     paramsHash: "p1",
     externalParamsHash: "", // module uses no external @file params
+    inlineParamsHash: "",
     force: false,
   });
   assert.equal(d.skip, true);

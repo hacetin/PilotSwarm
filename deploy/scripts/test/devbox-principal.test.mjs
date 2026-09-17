@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
-import { resolveDevboxPrincipal } from "../lib/deploy-bicep.mjs";
+import {
+  inlineParamsForMarker,
+  resolveDevboxPrincipal,
+} from "../lib/deploy-bicep.mjs";
+import { computeInlineParamsHash } from "../lib/deploy-marker.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..", "..");
@@ -43,6 +47,18 @@ test("devbox principal rejects unsupported principal types", () => {
     }),
     /DEVBOX_PRINCIPAL_TYPE must be User, Group, or ServicePrincipal/,
   );
+});
+
+test("changing the devbox principal invalidates the base-infra marker input", () => {
+  const first = computeInlineParamsHash(inlineParamsForMarker("base-infra", {
+    DEVBOX_PRINCIPAL_ID: "group-1",
+    DEVBOX_PRINCIPAL_NAME: "PilotSwarm Developers",
+  }));
+  const second = computeInlineParamsHash(inlineParamsForMarker("base-infra", {
+    DEVBOX_PRINCIPAL_ID: "group-2",
+    DEVBOX_PRINCIPAL_NAME: "PilotSwarm Developers",
+  }));
+  assert.notEqual(first, second);
 });
 
 test("base infrastructure grants only container-scoped blob access", () => {

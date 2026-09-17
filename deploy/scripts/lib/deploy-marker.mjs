@@ -24,6 +24,9 @@
 //     and therefore NOT present in the rendered params JSON. Without this,
 //     editing one of those files (e.g. a fleet pool-count change) would not
 //     bust the marker and the change would be silently skipped.
+//   * inlineParamsHash — SHA256 of dynamic `--parameters name=value` inputs
+//     that are appended directly to the Azure CLI command and therefore are
+//     also absent from the rendered params JSON.
 //
 // Marker file location:
 //   deploy/.tmp/<envName>/<Module>.deploy-marker.json
@@ -161,6 +164,19 @@ export function computeExternalParamsHash(files) {
   return h.digest("hex");
 }
 
+export function computeInlineParamsHash(values) {
+  if (!Array.isArray(values) || values.length === 0) return "";
+  const sorted = [...values].sort((a, b) => a.param.localeCompare(b.param));
+  const h = createHash("sha256");
+  for (const { param, value } of sorted) {
+    h.update(param);
+    h.update("\n");
+    h.update(String(value));
+    h.update("\n");
+  }
+  return h.digest("hex");
+}
+
 export function loadMarker(envName, moduleName) {
   const p = markerPath(envName, moduleName);
   if (!existsSync(p)) return null;
@@ -188,6 +204,7 @@ export function shouldSkipDeploy({
   templateHash,
   paramsHash,
   externalParamsHash = "",
+  inlineParamsHash = "",
   force,
 }) {
   if (force) return { skip: false, reason: "force" };
@@ -205,6 +222,9 @@ export function shouldSkipDeploy({
   // module that now has external params will see "" !== <hash> and redeploy.
   if ((marker.externalParamsHash || "") !== (externalParamsHash || "")) {
     return { skip: false, reason: "external params changed" };
+  }
+  if ((marker.inlineParamsHash || "") !== (inlineParamsHash || "")) {
+    return { skip: false, reason: "inline params changed" };
   }
   // Defensive: the bicep-outputs cache is what feeds env vars to downstream
   // services when we skip. If it's missing the marker is meaningless.

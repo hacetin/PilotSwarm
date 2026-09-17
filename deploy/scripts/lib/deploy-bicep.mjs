@@ -19,6 +19,7 @@ import {
   computeTemplateHash,
   computeParamsHash,
   computeExternalParamsHash,
+  computeInlineParamsHash,
   shouldSkipDeploy,
   saveMarker,
 } from "./deploy-marker.mjs";
@@ -85,6 +86,29 @@ export function resolveDevboxPrincipal(env) {
     name: env.DEVBOX_PRINCIPAL_NAME,
     type,
   };
+}
+
+export function inlineParamsForMarker(moduleName, env) {
+  if (moduleName !== "base-infra") return [];
+  const values = [];
+  const add = (param, value) => {
+    if (value !== undefined && value !== null && value !== "") {
+      values.push({ param, value });
+    }
+  };
+  add("postgresLocation", env.POSTGRES_LOCATION);
+  add("appGwExistsOverride", env.APPGW_EXISTS_OVERRIDE);
+  const devboxPrincipal = resolveDevboxPrincipal(env);
+  if (devboxPrincipal) {
+    add("devboxPrincipalId", devboxPrincipal.id);
+    add("devboxPrincipalName", devboxPrincipal.name);
+    add("devboxPrincipalType", devboxPrincipal.type);
+  }
+  if ((env.FOUNDRY_ENABLED || "").toLowerCase() === "true") {
+    add("foundryLocation", env.FOUNDRY_LOCATION);
+    add("foundryAuthMode", env.FOUNDRY_AUTH_MODE);
+  }
+  return values;
 }
 
 // FR-022 alias map: Bicep camelCase output → UPPER_SNAKE env key.
@@ -190,6 +214,8 @@ async function deployOne({ moduleName, service, envName, env, region, stagingDir
   const externalParamsHash = computeExternalParamsHash(
     externalParamFilesFor(moduleName, env),
   );
+  const inlineParams = inlineParamsForMarker(moduleName, env);
+  const inlineParamsHash = computeInlineParamsHash(inlineParams);
   // Per-module bypass: the operator can pass `--force-module <name>`
   // (collected into forceSet) to force a single module past its marker
   // without rebuilding everything via `--force`.
@@ -202,6 +228,7 @@ async function deployOne({ moduleName, service, envName, env, region, stagingDir
     templateHash,
     paramsHash,
     externalParamsHash,
+    inlineParamsHash,
     force: effectiveForce,
   });
   if (decision.skip) {
@@ -532,6 +559,7 @@ async function deployOne({ moduleName, service, envName, env, region, stagingDir
     templateHash,
     paramsHash,
     externalParamsHash,
+    inlineParamsHash,
     deployedAt: new Date().toISOString(),
     outputKeys: addedKeys,
   });
