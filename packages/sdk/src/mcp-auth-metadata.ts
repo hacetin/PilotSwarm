@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 import {
     audienceFromBearerChallenge,
     audienceFromProtectedResourceMetadata,
@@ -218,7 +218,7 @@ function defaultDependencies(): MetadataNetworkDependencies {
                         accept: "application/json",
                         "user-agent": "pilotswarm-sdk-mcp-auth-discovery",
                     },
-                    lookup: (_hostname, _options, callback) => callback(null, pinnedAddress, isIP(pinnedAddress)),
+                    lookup: pinnedAddressLookup(pinnedAddress),
                     signal,
                 }, (response) => {
                     const headers: Record<string, string | undefined> = {};
@@ -231,6 +231,17 @@ function defaultDependencies(): MetadataNetworkDependencies {
                 req.end();
             });
         },
+    };
+}
+
+export function pinnedAddressLookup(pinnedAddress: string): LookupFunction {
+    const family = isIP(pinnedAddress);
+    return (_hostname, options, callback) => {
+        if (options.all) {
+            callback(null, [{ address: pinnedAddress, family }]);
+            return;
+        }
+        callback(null, pinnedAddress, family);
     };
 }
 

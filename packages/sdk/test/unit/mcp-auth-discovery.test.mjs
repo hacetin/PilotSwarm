@@ -15,8 +15,28 @@ import {
     fetchProtectedResourceMetadata,
     resolveMcpServerAuth,
 } from "../../dist/mcp-auth-discovery.js";
+import { pinnedAddressLookup } from "../../dist/mcp-auth-metadata.js";
 
 const PUBLIC_ADDRESS = "93.184.216.34";
+
+test("pinned metadata DNS lookup honors Node's all-address callback contract", async () => {
+    const lookup = pinnedAddressLookup(PUBLIC_ADDRESS);
+    const all = await new Promise((resolve, reject) => {
+        lookup("metadata.example", { all: true }, (error, addresses) => {
+            if (error) reject(error);
+            else resolve(addresses);
+        });
+    });
+    const one = await new Promise((resolve, reject) => {
+        lookup("metadata.example", { all: false }, (error, address, family) => {
+            if (error) reject(error);
+            else resolve({ address, family });
+        });
+    });
+
+    assert.deepEqual(all, [{ address: PUBLIC_ADDRESS, family: 4 }]);
+    assert.deepEqual(one, { address: PUBLIC_ADDRESS, family: 4 });
+});
 
 function dependencies(handler, addresses = [PUBLIC_ADDRESS]) {
     return {
