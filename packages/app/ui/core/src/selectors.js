@@ -5863,7 +5863,7 @@ export function selectAdminConsole(state) {
             const ageMs = Number.isNaN(at.getTime()) ? Number.NaN : workersNow - at.getTime();
             const health = worker?.health || {};
             const info = worker?.info || {};
-            const provenance = normalizeWorkerProvenance(worker);
+            const provenance = normalizeWorkerProvenance(worker, ownerDirectory);
             const pkg = worker?.state?.["agent-packages"] || null;
             const installed = pkg?.installed && typeof pkg.installed === "object" ? Object.values(pkg.installed) : [];
             const pkgErrors = installed.filter((entry) => entry?.status === "error").length;
@@ -7919,7 +7919,7 @@ function explicitWorkerString(...values) {
     return null;
 }
 
-function normalizeWorkerProvenance(worker) {
+function normalizeWorkerProvenance(worker, ownerDirectory = null) {
     const info = worker?.info && typeof worker.info === "object" ? worker.info : {};
     const provenance = info.provenance && typeof info.provenance === "object"
         ? info.provenance
@@ -7941,6 +7941,10 @@ function normalizeWorkerProvenance(worker) {
     const buildId = explicitWorkerString(provenance.buildId, info.buildId) || WORKER_UNKNOWN;
     const imageRef = explicitWorkerString(image.ref) || WORKER_UNKNOWN;
     const imageDigest = explicitWorkerString(image.digest) || WORKER_UNKNOWN;
+    const workerOwner = worker?.owner && typeof worker.owner === "object" ? worker.owner : null;
+    const resolvedOwner = workerOwner && ownerDirectory instanceof Map
+        ? ownerDirectory.get(ownerKeyForOwner(workerOwner)) || workerOwner
+        : workerOwner;
     return {
         displayName: explicitWorkerString(
             provenance.displayName,
@@ -7960,7 +7964,9 @@ function normalizeWorkerProvenance(worker) {
         imageDigest,
         buildIdentity: [buildId, imageDigest, imageRef].find((value) => value !== WORKER_UNKNOWN) || WORKER_UNKNOWN,
         imageText: [imageRef, imageDigest].filter((value) => value !== WORKER_UNKNOWN).join(" · ") || WORKER_UNKNOWN,
-        owner: explicitWorkerString(worker?.owner?.subject) || WORKER_UNKNOWN,
+        owner: ownerDisplayName(resolvedOwner, explicitWorkerString(workerOwner?.subject) || WORKER_UNKNOWN),
+        ownerPrincipal: resolvedOwner,
+        computeKind: workerOwner?.subject ? "devbox" : "cluster",
         affinities,
         affinityText: affinities.length ? affinities.join(", ") : "none",
     };
@@ -7980,6 +7986,7 @@ function workerUtilizationText(activeSessions, workerSlots) {
  */
 export function applyWorkerFleetViewOptions(rows, options = {}) {
     const status = ["live", "stale"].includes(options.status) ? options.status : "all";
+    const compute = ["cluster", "devbox"].includes(options.compute) ? options.compute : "all";
     const field = ["owner", "version", "commit", "build"].includes(options.field) ? options.field : "all";
     const sort = ["stale", "owner", "version", "commit", "build"].includes(options.sort) ? options.sort : "default";
     const query = String(options.query || "").trim().toLocaleLowerCase();
@@ -8010,6 +8017,7 @@ export function applyWorkerFleetViewOptions(rows, options = {}) {
     const filtered = source.filter((row) => {
         if (status === "live" && !row.live) return false;
         if (status === "stale" && row.live) return false;
+        if (compute !== "all" && row.computeKind !== compute) return false;
         return matchesQuery(row);
     });
     const sortValue = (row) => {

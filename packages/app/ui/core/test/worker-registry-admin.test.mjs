@@ -128,6 +128,7 @@ test("workers view: liveness window, phase counts, pool sort, health text", asyn
     assert.equal(podB.pkgEpoch, 7);
     assert.equal(podB.pkgText, "1 ok · 1 error");
     assert.equal(podB.substrate, "kubernetes");
+    assert.equal(podB.computeKind, "cluster");
     assert.equal(podB.displayName, "General worker");
     assert.equal(podB.hostname, "aks-node-1");
     assert.equal(podB.owner, "unknown");
@@ -140,6 +141,7 @@ test("workers view: liveness window, phase counts, pool sort, health text", asyn
 
     const laptop = workers.rows.find((row) => row.id === "laptop-1");
     assert.equal(laptop.owner, "affan");
+    assert.equal(laptop.computeKind, "devbox");
     assert.equal(laptop.substrate, "process");
     assert.equal(laptop.pkgText, null, "worker without agent-packages state shows no pkg column");
     assert.equal(laptop.displayName, "unknown");
@@ -190,6 +192,20 @@ test("workers view filters and sorts mixed provenance without guessing missing v
     });
     store.dispatch({ type: "admin/visibility", visible: true });
     store.dispatch({ type: "admin/profile/loaded", profile: { ...ADMIN, githubCopilotKeySet: false, profileSettings: {} } });
+    store.dispatch({
+        type: "sessions/loaded",
+        sessions: [{
+            sessionId: "owned-session",
+            owner: {
+                provider: "team",
+                subject: "Agent Platform",
+                displayName: "Ada Lovelace",
+                email: "ada@example.test",
+            },
+            status: "idle",
+            createdAt: Date.now(),
+        }],
+    });
     controller.setAdminSection("workers");
     await controller.refreshAdminWorkers();
 
@@ -203,8 +219,12 @@ test("workers view filters and sorts mixed provenance without guessing missing v
     assert.equal(unknown.buildIdentity, "unknown");
     assert.equal(unknown.utilizationText, "unknown");
 
+    const resolvedOwner = rows.find((row) => row.id === "worker-v1");
+    assert.equal(resolvedOwner.owner, "Ada Lovelace");
+    assert.equal(resolvedOwner.ownerPrincipal.email, "ada@example.test");
+
     assert.deepEqual(applyWorkerFleetViewOptions(rows, {
-        field: "owner", query: "agent platform",
+        field: "owner", query: "ada lovelace",
     }).map((row) => row.id), ["worker-v1"]);
     assert.deepEqual(applyWorkerFleetViewOptions(rows, {
         field: "version", query: "2.0",
@@ -217,6 +237,12 @@ test("workers view filters and sorts mixed provenance without guessing missing v
     }).map((row) => row.id), ["worker-v1"]);
     assert.deepEqual(applyWorkerFleetViewOptions(rows, {
         status: "stale",
+    }).map((row) => row.id), ["worker-unknown"]);
+    assert.deepEqual(applyWorkerFleetViewOptions(rows, {
+        compute: "devbox",
+    }).map((row) => row.id), ["worker-v1", "worker-v2"]);
+    assert.deepEqual(applyWorkerFleetViewOptions(rows, {
+        compute: "cluster",
     }).map((row) => row.id), ["worker-unknown"]);
     assert.deepEqual(applyWorkerFleetViewOptions(rows, {
         sort: "version",

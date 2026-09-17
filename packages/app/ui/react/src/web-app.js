@@ -4396,6 +4396,16 @@ export function waitReasonLabel(session) {
     return session?.cronActive === true ? "On wake" : "Waiting";
 }
 
+export function sessionRoutingTagsText(session) {
+    const routing = session?.routing;
+    if (!routing) return null;
+    return [
+        routing.ownerAffinityRequired === true ? "compute:devbox" : "compute:cluster",
+        routing.repo ? `repo:${routing.repo}` : null,
+        routing.gitRef ? `git-ref:${routing.gitRef}` : null,
+    ].filter(Boolean).join(" · ");
+}
+
 function SessionDetailBox({ session, childCount = 0, pause = null, controller = null, collapsed = false, onToggle = null, onOpenBudget = null }) {
     // EVERY field renders on EVERY selection, empty ones as an em dash. The box
     // is a fixed grid of rows, so moving through the list cannot change its
@@ -4444,6 +4454,8 @@ function SessionDetailBox({ session, childCount = 0, pause = null, controller = 
         : session.visibility === "shared_write" ? "shared · write"
             : session.visibility === "shared_read" ? "shared · read"
                 : "private";
+
+    const tags = sessionRoutingTagsText(session);
 
     // Groups have members rather than descendants; both answer "how many are
     // under this row", so they share the field.
@@ -4563,6 +4575,7 @@ function SessionDetailBox({ session, childCount = 0, pause = null, controller = 
         field("Title", session?.title, "is-title"),
         field("ID", session?.sessionId, "is-id"),
         field("Owner", session?.owner ? formatAdminPrincipalLabel(session.owner) : null),
+        field("Tags", tags),
         field("Model", model),
         field("Context", context, percent != null && percent >= 85 ? "is-hot" : percent != null && percent >= 70 ? "is-warm" : ""),
         field("Cron", cron, session?.cronActive === true ? "is-armed" : ""),
@@ -15817,15 +15830,17 @@ function AdminWorkersPane({ controller, view }) {
     const workers = view.workers || {};
     const counts = workers.counts || {};
     const [status, setStatus] = React.useState("all");
+    const [compute, setCompute] = React.useState("all");
     const [field, setField] = React.useState("all");
     const [query, setQuery] = React.useState("");
     const [sort, setSort] = React.useState("default");
     const rows = React.useMemo(() => applyWorkerFleetViewOptions(workers.rows || [], {
         status,
+        compute,
         field,
         query,
         sort,
-    }), [workers.rows, status, field, query, sort]);
+    }), [workers.rows, status, compute, field, query, sort]);
     const option = (value, label) => React.createElement("option", { key: value, value }, label);
     const cellLines = (...lines) => React.createElement("div", { className: "ps-admin-workers__cell-lines" },
         lines.filter(Boolean).map((line, index) => React.createElement("span", {
@@ -15873,6 +15888,17 @@ function AdminWorkersPane({ controller, view }) {
                     option("all", "All"),
                     option("live", "Live"),
                     option("stale", "Stale"),
+                ])),
+            React.createElement("label", null,
+                React.createElement("span", null, "Environment"),
+                React.createElement("select", {
+                    "aria-label": "Worker environment filter",
+                    value: compute,
+                    onChange: (event) => setCompute(event.target.value),
+                }, [
+                    option("all", "All"),
+                    option("cluster", "Cluster"),
+                    option("devbox", "Devbox"),
                 ])),
             React.createElement("label", null,
                 React.createElement("span", null, "Filter"),
@@ -15936,7 +15962,8 @@ function AdminWorkersPane({ controller, view }) {
                             row.live ? `${row.agoText} · live` : `${row.agoText} · stale`,
                             `started ${row.processStartedAt}`,
                         )),
-                        React.createElement("td", null, row.owner),
+                        React.createElement("td", null,
+                            row.ownerPrincipal ? formatAdminPrincipalLabel(row.ownerPrincipal) : row.owner),
                         React.createElement("td", null, cellLines(
                             `app ${row.applicationVersion}`,
                             `SDK ${row.sdkVersion}`,

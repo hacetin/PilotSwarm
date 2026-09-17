@@ -29,7 +29,7 @@ import type {
     PromptAttachmentRef,
 } from "./types.js";
 import type {
-    SessionCatalog, SessionRow, TopEventEmitterRow, AgentPackageSelector, AgentPrincipal,
+    SessionCatalog, SessionRow, SessionRoutingContract, TopEventEmitterRow, AgentPackageSelector, AgentPrincipal,
     AgentPackageScope, AgentPackageSummary, AgentPackageDetail, AgentPackageEditorInfo, AgentWorkerStateRow, WorkerRow,
     WorkerTimelineEntry,
 } from "./cms.js";
@@ -384,6 +384,8 @@ export interface PilotSwarmSessionView {
     visibility?: SessionVisibility;
     /** Denormalized session-tree root id (self for top-level sessions). */
     rootSessionId?: string;
+    /** Immutable compute/repository placement used to route this session. */
+    routing?: SessionRoutingContract;
 }
 
 /** Cursor for keyset-paginated session listing. */
@@ -1401,10 +1403,16 @@ export class PilotSwarmManagementClient {
         let latestResponse: SessionResponsePayload | null = null;
         let orchError: string | undefined;
 
-        const [infoResult, statusResult] = await Promise.allSettled([
+        const [infoResult, statusResult, routingResult] = await Promise.allSettled([
             this._duroxideClient.getInstanceInfo(orchId),
             this._duroxideClient.getStatus(orchId),
+            typeof this._catalog!.getSessionRouting === "function"
+                ? this._catalog!.getSessionRouting(sessionId)
+                : Promise.resolve(null),
         ]);
+        const routing = routingResult.status === "fulfilled"
+            ? routingResult.value ?? undefined
+            : undefined;
 
         if (infoResult.status === "fulfilled") {
             const info = infoResult.value;
@@ -1570,6 +1578,7 @@ export class PilotSwarmManagementClient {
                     : undefined,
             contextUsage: normalizedContextUsage,
             statusVersion,
+            routing,
         };
     }
 
