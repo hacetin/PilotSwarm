@@ -82,6 +82,25 @@ param localDeploymentPrincipalId string = ''
 ])
 param localDeploymentPrincipalType string = 'User'
 
+// CONTROLLED-PREVIEW SECURITY EXCEPTION - NOT AN UPSTREAMABLE DEFAULT.
+// This bypasses application-level owner isolation by granting a developer
+// principal raw durable-store access, including PostgreSQL administrator
+// privileges. It exists only as a temporary bridge for a small trusted group.
+// A production design must use a non-admin runtime role or brokered worker API.
+@description('SECURITY EXCEPTION: optional trusted devbox principal granted secondary PostgreSQL administrator plus raw read/write access to the copilot-sessions container. Keep empty by default. This controlled-preview workaround is not suitable as a general upstream feature.')
+param devboxPrincipalId string = ''
+
+@description('Display name for devboxPrincipalId as registered in Microsoft Entra and PostgreSQL.')
+param devboxPrincipalName string = ''
+
+@description('Principal type for devboxPrincipalId.')
+@allowed([
+  'User'
+  'Group'
+  'ServicePrincipal'
+])
+param devboxPrincipalType string = 'Group'
+
 @description('Allow storage-account shared-key (local auth) access on the deployment storage account. Defaults to false: the bicep-orchestrator path is managed-identity only (PILOTSWARM_USE_MANAGED_IDENTITY=1 + DefaultAzureCredential), and tenants enforcing the Safe Secrets Standard / SFI-ID4.2.1 policy deny allowSharedKeyAccess=true. Set to true only for the legacy scripts/deploy-aks.sh connection-string flow in a tenant without that policy.')
 param allowSharedKeyAccess bool = false
 
@@ -471,6 +490,8 @@ module Storage './storage.bicep' = {
     workerWorkloadPrincipalId: Uami.outputs.csiIdentityPrincipalId
     localDeploymentPrincipalId: localDeploymentPrincipalId
     localDeploymentPrincipalType: localDeploymentPrincipalType
+    devboxPrincipalId: devboxPrincipalId
+    devboxPrincipalType: devboxPrincipalType
   }
 }
 
@@ -486,6 +507,9 @@ module Postgres './postgres.bicep' = {
     aadAdminPrincipalId: Uami.outputs.csiIdentityPrincipalId
     aadAdminPrincipalName: Uami.outputs.csiIdentityName
     aadAdminPrincipalType: 'ServicePrincipal'
+    aadSecondaryAdminPrincipalId: devboxPrincipalId
+    aadSecondaryAdminPrincipalName: devboxPrincipalName
+    aadSecondaryAdminPrincipalType: devboxPrincipalType
   }
 }
 

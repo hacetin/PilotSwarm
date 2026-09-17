@@ -71,6 +71,22 @@ export function boundedDeploymentName(value, maxLength = 64) {
   return `${prefix}-${hash}`;
 }
 
+export function resolveDevboxPrincipal(env) {
+  if (!env.DEVBOX_PRINCIPAL_ID) return null;
+  if (!env.DEVBOX_PRINCIPAL_NAME) {
+    throw new Error("DEVBOX_PRINCIPAL_NAME is required when DEVBOX_PRINCIPAL_ID is set.");
+  }
+  const type = env.DEVBOX_PRINCIPAL_TYPE || "Group";
+  if (!["User", "Group", "ServicePrincipal"].includes(type)) {
+    throw new Error("DEVBOX_PRINCIPAL_TYPE must be User, Group, or ServicePrincipal.");
+  }
+  return {
+    id: env.DEVBOX_PRINCIPAL_ID,
+    name: env.DEVBOX_PRINCIPAL_NAME,
+    type,
+  };
+}
+
 // FR-022 alias map: Bicep camelCase output → UPPER_SNAKE env key.
 // Keys not in this table fall back to the default camelCase → UPPER_SNAKE rule
 // in `aliasFor()` so new outputs flow through automatically.
@@ -257,6 +273,24 @@ async function deployOne({ moduleName, service, envName, env, region, stagingDir
     if (env.APPGW_EXISTS_OVERRIDE) {
       baseArgs.push("--parameters", `appGwExistsOverride=${env.APPGW_EXISTS_OVERRIDE}`);
       log("info", `[${moduleName}] appGwExistsOverride = ${env.APPGW_EXISTS_OVERRIDE} (skipping check-appgw-exists script)`);
+    }
+    const devboxPrincipal = resolveDevboxPrincipal(env);
+    if (devboxPrincipal) {
+      log(
+        "warn",
+        `[${moduleName}] SECURITY EXCEPTION: devbox principal ${devboxPrincipal.name} receives ` +
+          "secondary PostgreSQL administrator access and raw session-container read/write access. " +
+          "This controlled-preview workaround is not an upstreamable default.",
+      );
+      baseArgs.push(
+        "--parameters",
+        `devboxPrincipalId=${devboxPrincipal.id}`,
+        "--parameters",
+        `devboxPrincipalName=${devboxPrincipal.name}`,
+        "--parameters",
+        `devboxPrincipalType=${devboxPrincipal.type}`,
+      );
+      log("info", `[${moduleName}] devbox control-plane principal = ${devboxPrincipal.name} (${devboxPrincipal.type})`);
     }
     // Foundry deployments: when FOUNDRY_ENABLED=true the orchestrator
     // threads the per-stamp deployments JSON file in via

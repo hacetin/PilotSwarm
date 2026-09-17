@@ -50,6 +50,20 @@ param localDeploymentPrincipalId string = ''
 ])
 param localDeploymentPrincipalType string = 'User'
 
+// Part of the controlled-preview devbox security exception declared in
+// main.bicep. Container scope limits the blast radius but does not enforce
+// session ownership: the principal can read or modify every session blob.
+@description('SECURITY EXCEPTION: optional trusted devbox principal granted read/write access to every blob in copilot-sessions. Container-scoped, but not owner- or session-scoped.')
+param devboxPrincipalId string = ''
+
+@description('Principal type for devboxPrincipalId.')
+@allowed([
+  'User'
+  'Group'
+  'ServicePrincipal'
+])
+param devboxPrincipalType string = 'Group'
+
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
   location: location
@@ -115,6 +129,16 @@ resource assignBlobContributorToLocalDeployer 'Microsoft.Authorization/roleAssig
   properties: {
     principalId: localDeploymentPrincipalId
     principalType: localDeploymentPrincipalType
+    roleDefinitionId: blobDataContributorDef.id
+  }
+}
+
+resource assignSessionBlobContributorToDevboxPrincipal 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(devboxPrincipalId)) {
+  name: guid(sessionsContainer.id, devboxPrincipalId, blobDataContributorRoleId)
+  scope: sessionsContainer
+  properties: {
+    principalId: devboxPrincipalId
+    principalType: devboxPrincipalType
     roleDefinitionId: blobDataContributorDef.id
   }
 }
