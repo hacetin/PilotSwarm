@@ -211,7 +211,7 @@ export interface ManagementOps {
      * Adopt the legacy synthetic System GHCP key into the calling admin's private, system-enabled provider. [admin]
      * @remarks `POST /management/providers/adopt-system-github-key` — access: `fleet:admin`
      */
-    adoptLegacySystemGitHubCopilotKey(params: {
+    adoptLegacySystemGitHubCopilotKey(params?: {
         name?: any;
     }): Promise<any>;
 
@@ -288,7 +288,7 @@ export interface ManagementOps {
      * Copy an artifact across sessions (read access on the source, write on the target).
      * @remarks `POST /artifacts/copy` — access: `session:copy`
      */
-    copyArtifact(params: {
+    copyArtifact(params?: {
         fromSessionId?: any;
         fromFilename?: any;
         toSessionId?: any;
@@ -299,7 +299,7 @@ export interface ManagementOps {
      * Atomically register a JobGenerator and immutable definition version 1. Owner is the authenticated principal.
      * @remarks `POST /job-generators` — access: `job-generator:create`
      */
-    createJobGenerator(params: {
+    createJobGenerator(params?: {
         name?: any;
         cadenceSeconds?: any;
         definition?: any;
@@ -309,7 +309,7 @@ export interface ManagementOps {
      * Create a provider of your own, on your own credentials. Nobody else sees it.
      * @remarks `POST /me/providers` — access: `authed`
      */
-    createMyProvider(params: {
+    createMyProvider(params?: {
         name?: any;
         type?: any;
         credentials?: any;
@@ -320,7 +320,7 @@ export interface ManagementOps {
      * Create a shared provider — one anyone may spend from. [admin]
      * @remarks `POST /management/providers` — access: `fleet:admin`
      */
-    createProvider(params: {
+    createProvider(params?: {
         name?: any;
         type?: any;
         credentials?: any;
@@ -328,10 +328,10 @@ export interface ManagementOps {
     }): Promise<any>;
 
     /**
-     * Create a session. Owner is the authenticated principal; visibility defaults to the deployment default. Optional repo pins the session to a git-hydration repo enlistment (routes turns only to matching git-repo-workers). Optional gitRef pins the session's git enlistment to a non-default branch/tag/commit (bare branch names are resolved against origin; defaults to origin/HEAD). Optional callerAuth ({ audienceTokens: { <aud>: <token> }, allowedServers?, ttlSeconds? }) supplies delegated per-audience bearers presented to repo-declared remote MCP servers as the caller.
+     * Create a session. Owner is the authenticated principal; visibility defaults to the deployment default. Optional repo pins the session to a git-hydration repo enlistment (routes turns only to matching git-repo-workers). Optional gitRef pins the session's git enlistment to a non-default branch/tag/commit (bare branch names are resolved against origin; defaults to origin/HEAD). Optional compute is cluster (default) or devbox; devbox routes turns only to workers owned by the authenticated creator. Optional callerAuth ({ audienceTokens: { <aud>: <token> }, allowedServers?, ttlSeconds? }) supplies delegated per-audience bearers presented to repo-declared remote MCP servers as the caller.
      * @remarks `POST /sessions` — access: `session:create`
      */
-    createSession(params: {
+    createSession(params?: {
         model?: any;
         reasoningEffort?: any;
         contextTier?: any;
@@ -339,14 +339,15 @@ export interface ManagementOps {
         visibility?: any;
         repo?: any;
         gitRef?: any;
+        compute?: any;
         callerAuth?: any;
     }): Promise<any>;
 
     /**
-     * Create a session bound to a named agent. Optional repo pins the session to a git-hydration repo enlistment. Optional gitRef pins the session's git enlistment to a non-default branch/tag/commit. Optional callerAuth ({ audienceTokens }) supplies delegated per-audience bearers for repo-declared remote MCP servers.
+     * Create a session bound to a named agent. Optional repo pins the session to a git-hydration repo enlistment. Optional gitRef pins the session's git enlistment to a non-default branch/tag/commit. Optional compute is cluster (default) or devbox; devbox routes turns only to workers owned by the authenticated creator. Optional callerAuth ({ audienceTokens }) supplies delegated per-audience bearers for repo-declared remote MCP servers.
      * @remarks `POST /sessions/for-agent` — access: `session:create`
      */
-    createSessionForAgent(params: {
+    createSessionForAgent(params?: {
         agentName?: any;
         model?: any;
         reasoningEffort?: any;
@@ -359,6 +360,7 @@ export interface ManagementOps {
         visibility?: any;
         repo?: any;
         gitRef?: any;
+        compute?: any;
         callerAuth?: any;
     }): Promise<any>;
 
@@ -366,7 +368,7 @@ export interface ManagementOps {
      * Create a session group.
      * @remarks `POST /management/session-groups` — access: `authed`
      */
-    createSessionGroup(params: {
+    createSessionGroup(params?: {
         input?: any;
     }): Promise<any>;
 
@@ -394,7 +396,7 @@ export interface ManagementOps {
      * Delete a fact / pattern (DeleteFactInput). POST because DELETE bodies are unreliable.
      * @remarks `POST /facts/delete` — access: `facts:write`
      */
-    deleteFact(params: {
+    deleteFact(params?: {
         input?: any;
     }): Promise<any>;
 
@@ -402,7 +404,7 @@ export interface ManagementOps {
      * Delete a graph edge.
      * @remarks `POST /graph/edges/delete` — access: `authed`
      */
-    deleteGraphEdge(params: {
+    deleteGraphEdge(params?: {
         fromKey?: any;
         toKey?: any;
         predicateKey?: any;
@@ -421,7 +423,7 @@ export interface ManagementOps {
      * Delete a graph node.
      * @remarks `POST /graph/nodes/delete` — access: `authed`
      */
-    deleteGraphNode(params: {
+    deleteGraphNode(params?: {
         nodeKey?: any;
         namespace?: any;
     }): Promise<any>;
@@ -501,7 +503,7 @@ export interface ManagementOps {
      * Force-purge soft-deleted facts (ForcePurgeFactsInput). [admin]
      * @remarks `POST /facts/purge` — access: `fleet:admin` (admin)
      */
-    forcePurgeFacts(params: {
+    forcePurgeFacts(params?: {
         input?: any;
     }): Promise<any>;
 
@@ -618,7 +620,7 @@ export interface ManagementOps {
      * Soft-deleted facts awaiting reconciliation.
      * @remarks `GET /management/facts/tombstone-stats` — access: `fleet:read`
      */
-    getFactsTombstoneStats(params: {
+    getFactsTombstoneStats(params?: {
         ttlSeconds?: number;
     }): Promise<any>;
 
@@ -626,7 +628,7 @@ export interface ManagementOps {
      * Fleet-wide graph node usage.
      * @remarks `GET /management/fleet/graph-node-usage` — access: `fleet:read`
      */
-    getFleetGraphNodeUsage(params: {
+    getFleetGraphNodeUsage(params?: {
         since?: string;
         includeDeleted?: boolean;
         limit?: number;
@@ -638,7 +640,7 @@ export interface ManagementOps {
      * Fleet-wide retrieval usage.
      * @remarks `GET /management/fleet/retrieval-usage` — access: `fleet:read`
      */
-    getFleetRetrievalUsage(params: {
+    getFleetRetrievalUsage(params?: {
         since?: string;
         includeDeleted?: boolean;
     }): Promise<any>;
@@ -647,7 +649,7 @@ export interface ManagementOps {
      * Fleet-wide skill usage.
      * @remarks `GET /management/fleet/skill-usage` — access: `fleet:read`
      */
-    getFleetSkillUsage(params: {
+    getFleetSkillUsage(params?: {
         since?: string;
         includeDeleted?: boolean;
     }): Promise<any>;
@@ -656,7 +658,7 @@ export interface ManagementOps {
      * Fleet-wide stats.
      * @remarks `GET /management/fleet/stats` — access: `fleet:read`
      */
-    getFleetStats(params: {
+    getFleetStats(params?: {
         since?: string;
         includeDeleted?: boolean;
     }): Promise<any>;
@@ -752,7 +754,7 @@ export interface ManagementOps {
      * Limits, usage against them, reset times, and the caller's own ceiling where an allowance applies. `names` is a comma-separated list; omit it for all of them.
      * @remarks `GET /providers/status` — access: `authed`
      */
-    getProviderStatus(params: {
+    getProviderStatus(params?: {
         names?: string;
     }): Promise<any>;
 
@@ -760,7 +762,7 @@ export interface ManagementOps {
      * Where the tokens went: { totals, daily[], breakdown[] } over one filter set. dimension: session | user | provider | model | agent. Non-admins see only their own rows. `mine` narrows to the caller's own spend, resolved server-side — it carries no id, so it cannot name anybody else.
      * @remarks `GET /providers/usage` — access: `authed`
      */
-    getProviderUsage(params: {
+    getProviderUsage(params?: {
         days?: number;
         mine?: boolean;
         ownerUserId?: number;
@@ -776,7 +778,7 @@ export interface ManagementOps {
      * The agent pivot from the usage ledger: tokens, turns, sessions and models per agent over the window (with '(none)' for sessions bound to no agent), each with a per-day series, plus a flat day-by-agent series for a stacked chart. Same viewer scoping and `providers` filter as the usage summary.
      * @remarks `GET /providers/usage-agents` — access: `authed`
      */
-    getProviderUsageAgents(params: {
+    getProviderUsageAgents(params?: {
         days?: number;
         providers?: string;
     }): Promise<any>;
@@ -791,7 +793,7 @@ export interface ManagementOps {
      * The cluster summary from the usage ledger: today / week / month token totals with the input, output and cache split, a per-UTC-day series, and the per-model pivot across providers, reasoning efforts and context tiers. `providers` is a comma-separated list of names; absent means all. Admins see the whole cluster (system sessions included); everyone else sees their own turns.
      * @remarks `GET /providers/usage-summary` — access: `authed`
      */
-    getProviderUsageSummary(params: {
+    getProviderUsageSummary(params?: {
         days?: number;
         providers?: string;
     }): Promise<any>;
@@ -979,7 +981,7 @@ export interface ManagementOps {
      * Noisiest event emitters since a date.
      * @remarks `GET /management/events/top-emitters` — access: `fleet:read`
      */
-    getTopEventEmitters(params: {
+    getTopEventEmitters(params?: {
         since?: string;
         limit?: number;
     }): Promise<any>;
@@ -996,7 +998,7 @@ export interface ManagementOps {
      * Per-user stats.
      * @remarks `GET /management/users/stats` — access: `fleet:read`
      */
-    getUserStats(params: {
+    getUserStats(params?: {
         since?: string;
         includeDeleted?: boolean;
     }): Promise<any>;
@@ -1040,7 +1042,7 @@ export interface ManagementOps {
      * Expand a subgraph around a node.
      * @remarks `POST /graph/neighbourhood` — access: `authed`
      */
-    graphNeighbourhood(params: {
+    graphNeighbourhood(params?: {
         nodeKey?: any;
         depth?: any;
         namespace?: any;
@@ -1050,7 +1052,7 @@ export interface ManagementOps {
      * Graph node/edge counts.
      * @remarks `GET /graph/stats` — access: `authed`
      */
-    graphStats(params: {
+    graphStats(params?: {
         namespace?: string;
     }): Promise<any>;
 
@@ -1086,7 +1088,7 @@ export interface ManagementOps {
      * Authz audit records, newest first. Admin fleet-wide; owners for their own sessions (sessionId required).
      * @remarks `GET /management/authz-audit` — access: `authz:audit`
      */
-    listAuthzAudit(params: {
+    listAuthzAudit(params?: {
         limit?: number;
         sessionId?: string;
     }): Promise<any>;
@@ -1109,7 +1111,7 @@ export interface ManagementOps {
      * Read feature-setting audit history. [admin]
      * @remarks `GET /management/features/changes` — access: `fleet:admin`
      */
-    listFeatureFlagChanges(params: {
+    listFeatureFlagChanges(params?: {
         limit?: number;
     }): Promise<any>;
 
@@ -1123,7 +1125,7 @@ export interface ManagementOps {
      * Find users to manage feature preferences. [admin]
      * @remarks `GET /management/features/users` — access: `fleet:admin`
      */
-    listFeatureFlagUsers(params: {
+    listFeatureFlagUsers(params?: {
         query?: string;
     }): Promise<any>;
 
@@ -1131,7 +1133,7 @@ export interface ManagementOps {
      * List graph namespaces (corpora).
      * @remarks `GET /graph/namespaces` — access: `authed`
      */
-    listGraphNamespaces(params: {
+    listGraphNamespaces(params?: {
         prefix?: string;
         includeArchived?: boolean;
         includeDetails?: boolean;
@@ -1204,15 +1206,18 @@ export interface ManagementOps {
      * Member directory (provider/subject/email/displayName) for share autocomplete; excludes synthetic principals.
      * @remarks `GET /management/users` — access: `authed`
      */
-    listKnownUsers(params: {
+    listKnownUsers(params?: {
         limit?: number;
     }): Promise<any>;
 
     /**
-     * Viewer-usable runtime provider instances (`catalogKind=runtime_provider`). Direct PilotSwarmManagementClient.listModels() is the provider-type template catalog (`catalogKind=provider_type`); use listRuntimeModels(viewer) for direct parity.
+     * Models runnable for the requested placement. compute=devbox resolves live owner/repository workers; omitted or cluster returns viewer-usable runtime provider instances.
      * @remarks `GET /models` — access: `authed`
      */
-    listModels(params?: Record<string, never>): Promise<any>;
+    listModels(params?: {
+        compute?: string;
+        repo?: string;
+    }): Promise<any>;
 
     /**
      * Sessions waiting on a limit, allowance, hold, or a provider name that no longer resolves. Admins fleet-wide, everyone else their own.
@@ -1250,7 +1255,7 @@ export interface ManagementOps {
      * Keyset-paginated session listing. Cursor is carried as two scalar params (cursorUpdatedAt/cursorSessionId) so the request URL has no encoded JSON for a WAF to block.
      * @remarks `GET /management/sessions` — access: `session:list`
      */
-    listSessionsPage(params: {
+    listSessionsPage(params?: {
         limit?: number;
         cursorUpdatedAt?: number;
         cursorSessionId?: string;
@@ -1267,7 +1272,7 @@ export interface ManagementOps {
      * Deprecated alias of placeSessionsInGroup.
      * @remarks `POST /management/session-groups/move` — access: `authed`
      */
-    moveSessionsToGroup(params: {
+    moveSessionsToGroup(params?: {
         groupId?: any;
         sessionIds?: any;
     }): Promise<any>;
@@ -1288,7 +1293,7 @@ export interface ManagementOps {
      * Place session trees into one of the caller's groups (groupId null = ungroup). Requires read access to each session; changes no shared session data.
      * @remarks `POST /management/session-groups/place` — access: `authed`
      */
-    placeSessionsInGroup(params: {
+    placeSessionsInGroup(params?: {
         groupId?: any;
         sessionIds?: any;
     }): Promise<any>;
@@ -1297,7 +1302,7 @@ export interface ManagementOps {
      * Prune summaries of deleted sessions.
      * @remarks `POST /management/summaries/prune-deleted` — access: `fleet:admin`
      */
-    pruneDeletedSummaries(params: {
+    pruneDeletedSummaries(params?: {
         olderThan?: any;
     }): Promise<any>;
 
@@ -1337,7 +1342,7 @@ export interface ManagementOps {
      * Read facts (ReadFactsQuery params).
      * @remarks `GET /facts` — access: `facts:read`
      */
-    readFacts(params: {
+    readFacts(params?: {
         keyPattern?: string;
         scopeKeys?: any;
         tags?: any;
@@ -1446,7 +1451,7 @@ export interface ManagementOps {
      * Retrieval over facts (lexical | semantic | hybrid). [enhanced]
      * @remarks `POST /facts/search` — access: `facts:read`
      */
-    searchFacts(params: {
+    searchFacts(params?: {
         query?: any;
         opts?: any;
     }): Promise<any>;
@@ -1455,7 +1460,7 @@ export interface ManagementOps {
      * Search graph edges (GraphEdgeQuery).
      * @remarks `POST /graph/edges/search` — access: `authed`
      */
-    searchGraphEdges(params: {
+    searchGraphEdges(params?: {
         query?: any;
     }): Promise<any>;
 
@@ -1463,7 +1468,7 @@ export interface ManagementOps {
      * Search graph nodes (GraphNodeQuery).
      * @remarks `POST /graph/nodes/search` — access: `authed`
      */
-    searchGraphNodes(params: {
+    searchGraphNodes(params?: {
         query?: any;
     }): Promise<any>;
 
@@ -1544,7 +1549,7 @@ export interface ManagementOps {
      * Deprecated alias for setModelDefault(scope=cluster). [admin]
      * @remarks `PUT /management/defaults` — access: `fleet:admin`
      */
-    setClusterDefault(params: {
+    setClusterDefault(params?: {
         provider?: any;
         model?: any;
         reasoning?: any;
@@ -1567,7 +1572,7 @@ export interface ManagementOps {
      * Set (or clear with null) the per-user GitHub Copilot key.
      * @remarks `PUT /me/github-copilot-key` — access: `authed`
      */
-    setCurrentUserGitHubCopilotKey(params: {
+    setCurrentUserGitHubCopilotKey(params?: {
         key?: any;
     }): Promise<any>;
 
@@ -1575,7 +1580,7 @@ export interface ManagementOps {
      * Replace profile settings.
      * @remarks `PATCH /me/profile/settings` — access: `authed`
      */
-    setCurrentUserProfileSettings(params: {
+    setCurrentUserProfileSettings(params?: {
         settings?: any;
     }): Promise<any>;
 
@@ -1594,7 +1599,7 @@ export interface ManagementOps {
      * Set or clear the user or cluster ordinary-session default. Cluster scope requires admin.
      * @remarks `PUT /model-defaults` — access: `authed`
      */
-    setModelDefault(params: {
+    setModelDefault(params?: {
         scope?: any;
         provider?: any;
         model?: any;
@@ -1606,7 +1611,7 @@ export interface ManagementOps {
      * The caller's prefill for new sessions. A null provider clears it.
      * @remarks `PUT /me/default` — access: `authed`
      */
-    setMyDefault(params: {
+    setMyDefault(params?: {
         provider?: any;
         model?: any;
         reasoning?: any;
@@ -1685,7 +1690,7 @@ export interface ManagementOps {
      * Set (or clear with null) the System user's GitHub Copilot key, used by ownerless system sessions. [admin]
      * @remarks `PUT /admin/system-github-copilot-key` — access: `fleet:admin` (admin)
      */
-    setSystemGitHubCopilotKey(params: {
+    setSystemGitHubCopilotKey(params?: {
         key?: any;
     }): Promise<any>;
 
@@ -1693,7 +1698,7 @@ export interface ManagementOps {
      * Set or clear the system-session default and optionally restart inheriting sessions. [admin]
      * @remarks `PUT /management/system-model-default` — access: `fleet:admin`
      */
-    setSystemModelDefault(params: {
+    setSystemModelDefault(params?: {
         provider?: any;
         model?: any;
         reasoningEffort?: any;
@@ -1729,7 +1734,7 @@ export interface ManagementOps {
      * Semantic nearest-neighbours of a known fact. [enhanced]
      * @remarks `POST /facts/similar` — access: `facts:read`
      */
-    similarFacts(params: {
+    similarFacts(params?: {
         scopeKey?: any;
         opts?: any;
     }): Promise<any>;
@@ -1738,7 +1743,7 @@ export interface ManagementOps {
      * Start the durable embedder loop. [enhanced, admin]
      * @remarks `POST /facts/embedder/start` — access: `fleet:admin` (admin)
      */
-    startFactsEmbedder(params: {
+    startFactsEmbedder(params?: {
         intervalSeconds?: any;
         batch?: any;
     }): Promise<any>;
@@ -1747,7 +1752,7 @@ export interface ManagementOps {
      * Stop the durable embedder loop. [enhanced, admin]
      * @remarks `POST /facts/embedder/stop` — access: `fleet:admin` (admin)
      */
-    stopFactsEmbedder(params: {
+    stopFactsEmbedder(params?: {
         reason?: any;
     }): Promise<any>;
 
@@ -1764,7 +1769,7 @@ export interface ManagementOps {
      * Store a fact or facts (StoreFactInput | StoreFactInput[]).
      * @remarks `POST /facts` — access: `facts:write`
      */
-    storeFact(params: {
+    storeFact(params?: {
         input?: any;
     }): Promise<any>;
 
@@ -1820,7 +1825,7 @@ export interface ManagementOps {
      * Publish a package from inline files ([{path, contentBase64}], ≤ 2 MB total); validates, canonically packs, and registers as the caller.
      * @remarks `POST /agent-packages/upload` — access: `authed`
      */
-    uploadAgentPackage(params: {
+    uploadAgentPackage(params?: {
         files?: any;
         scope?: any;
     }): Promise<any>;
@@ -1841,7 +1846,7 @@ export interface ManagementOps {
      * Upsert a graph edge (GraphEdgeInput).
      * @remarks `POST /graph/edges` — access: `authed`
      */
-    upsertGraphEdge(params: {
+    upsertGraphEdge(params?: {
         input?: any;
     }): Promise<any>;
 
@@ -1849,7 +1854,7 @@ export interface ManagementOps {
      * Register/update a graph namespace. [admin]
      * @remarks `POST /graph/namespaces` — access: `fleet:admin` (admin)
      */
-    upsertGraphNamespace(params: {
+    upsertGraphNamespace(params?: {
         input?: any;
     }): Promise<any>;
 
@@ -1857,7 +1862,7 @@ export interface ManagementOps {
      * Upsert a graph node (GraphNodeInput).
      * @remarks `POST /graph/nodes` — access: `authed`
      */
-    upsertGraphNode(params: {
+    upsertGraphNode(params?: {
         input?: any;
     }): Promise<any>;
 

@@ -1,4 +1,5 @@
 import { NodeSdkTransport } from "pilotswarm/host";
+import { isOwnerScopedRoutingTag } from "pilotswarm-sdk";
 import { adminCanAccessResource, adminCapabilities, ADMIN_SCOPE_POLICY_VERSION } from "pilotswarm-sdk/api";
 import { projectFleetAccounting, projectUserAccounting, projectAgentWorkerState, projectWorker } from "pilotswarm-sdk/api";
 import {
@@ -186,7 +187,7 @@ const JOB_SOURCE_PROVIDER_ID_RE = /^[a-z][a-z0-9._-]{0,127}$/;
  * registry (see PortalRuntime._serviceableRepos); kept as a pure param so this
  * stays trivially testable.
  */
-function validateRepoParam(raw, serviceableRepos) {
+function normalizeRepoParam(raw) {
     if (raw == null || raw === "") return undefined;
     const repo = String(raw).trim().toLowerCase();
     if (!REPO_NAME_RE.test(repo)) {
@@ -195,6 +196,12 @@ function validateRepoParam(raw, serviceableRepos) {
             { code: "INVALID_REQUEST" },
         );
     }
+    return repo;
+}
+
+function validateRepoParam(raw, serviceableRepos) {
+    const repo = normalizeRepoParam(raw);
+    if (!repo) return undefined;
     if (!serviceableRepos.has(repo)) {
         throw Object.assign(
             new Error(`repo "${repo}" is not a known git-hydration enlistment`),
@@ -230,6 +237,18 @@ function validateGitRefParam(raw) {
         );
     }
     return ref;
+}
+
+function validateComputeParam(raw) {
+    if (raw == null || raw === "") return "cluster";
+    const compute = String(raw).trim().toLowerCase();
+    if (compute !== "cluster" && compute !== "devbox") {
+        throw Object.assign(
+            new Error("compute must be either 'cluster' or 'devbox'"),
+            { code: "INVALID_REQUEST" },
+        );
+    }
+    return compute;
 }
 
 /**
@@ -500,6 +519,99 @@ export class PortalRuntime {
         }
         if (!base && repos.length === 0) return null;
         return { ...(base || {}), repos };
+    }
+
+    async _modelsForDevbox(owner, repo, isAdmin) {
+        const [catalog, workers] = await Promise.all([
+            this.transport.listModels({ principal: owner, isAdmin }),
+            this.transport.listWorkers(),
+        ]);
+        const now = Date.now();
+        const matching = (workers ?? []).filter((worker) => {
+            const updatedAt = new Date(worker?.updatedAt ?? 0).getTime();
+            const repos = [
+                ...(Array.isArray(worker?.info?.repos) ? worker.info.repos : []),
+                ...(Array.isArray(worker?.info?.ownerScopedRepos) ? worker.info.ownerScopedRepos : []),
+            ];
+            const routingTags = Array.isArray(worker?.info?.routingTags)
+                ? worker.info.routingTags
+                : [];
+            const supportsPlacement = repo
+                ? repos.some((candidate) => String(candidate).toLowerCase() === repo)
+                : routingTags.some((tag) => (
+                    isOwnerScopedRoutingTag(String(tag))
+                    && String(tag).endsWith("|generic")
+                ));
+            return worker?.phase === "ready"
+                && Number.isFinite(updatedAt)
+                && now - updatedAt <= 90_000
+                && worker?.owner?.provider === owner?.provider
+                && worker?.owner?.subject === owner?.subject
+                && supportsPlacement;
+        });
+        const available = new Set();
+        const preferred = [];
+        for (const worker of matching) {
+            const models = worker?.info?.models;
+            if (typeof models?.defaultModel === "string") preferred.push(models.defaultModel);
+            for (const model of Array.isArray(models?.available) ? models.available : []) {
+                if (typeof model === "string" && model) available.add(model);
+            }
+        }
+        const orderedModels = [];
+        for (const model of [...preferred, ...available]) {
+            if (!orderedModels.includes(model)) orderedModels.push(model);
+        }
+        const order = new Map(orderedModels.map((model, index) => [model, index]));
+        return (catalog ?? [])
+            .filter((model) => available.has(model?.qualifiedName))
+            .map((model) => ({
+                ...model,
+                credentialAvailable: true,
+                availabilitySource: "worker",
+            }))
+            .sort((left, right) => (
+                (order.get(left.qualifiedName) ?? Number.MAX_SAFE_INTEGER)
+                - (order.get(right.qualifiedName) ?? Number.MAX_SAFE_INTEGER)
+            ));
+    }
+
+    async _resolveDevboxModel(owner, repo, isAdmin, requestedModel) {
+        const models = await this._modelsForDevbox(owner, repo, isAdmin);
+        if (requestedModel && !models.some((candidate) => candidate.qualifiedName === requestedModel)) {
+            throw Object.assign(
+                new Error(`No ready owner-affinitized devbox worker for repo "${repo ?? "generic"}" advertises model "${requestedModel}".`),
+                { code: "MODEL_UNRESOLVED" },
+            );
+        }
+        const model = requestedModel ?? models[0]?.qualifiedName;
+        if (!model) {
+            throw Object.assign(
+                new Error(`No ready owner-affinitized devbox worker for repo "${repo ?? "generic"}" advertises an available model.`),
+                { code: "MODEL_UNRESOLVED" },
+            );
+        }
+        return model;
+    }
+
+    async _resolveSessionModelForPlacement(sessionId, requestedModel) {
+        const model = String(requestedModel || "").trim();
+        if (!model) throw invalidRequest("model is required.");
+        const session = await this.transport.getSession(sessionId);
+        const routing = session?.routing;
+        if (routing?.ownerAffinityRequired !== true) return model;
+        if (!session?.owner) {
+            throw Object.assign(
+                new Error(`Owner-affinitized session ${sessionId} has no persisted owner.`),
+                { code: "SESSION_PLACEMENT_INVALID" },
+            );
+        }
+        return this._resolveDevboxModel(
+            session.owner,
+            normalizeRepoParam(routing.repo),
+            false,
+            model,
+        );
     }
 
     // ── Sign-in role persistence ────────────────────────────────────────
@@ -1330,11 +1442,17 @@ export class PortalRuntime {
                 return this.transport.getExecutionHistory(safeParams.sessionId, safeParams.executionId);
             case "createSession": {
                 await this._assertPlacementGroupOwned(safeParams.groupId, authContext, { isAdmin });
-                const repo = validateRepoParam(safeParams.repo, await this._serviceableRepos());
+                const compute = validateComputeParam(safeParams.compute);
+                const repo = compute === "devbox"
+                    ? normalizeRepoParam(safeParams.repo)
+                    : validateRepoParam(safeParams.repo, await this._serviceableRepos());
                 const gitRef = validateGitRefParam(safeParams.gitRef);
                 const callerAuth = validateCallerAuthParam(safeParams.callerAuth);
+                const model = compute === "devbox"
+                    ? await this._resolveDevboxModel(owner, repo, isAdmin, safeParams.model)
+                    : safeParams.model;
                 const created = await this.transport.createSession({
-                    model: safeParams.model,
+                    model,
                     reasoningEffort: safeParams.reasoningEffort,
                     contextTier: safeParams.contextTier,
                     groupId: safeParams.groupId,
@@ -1342,17 +1460,24 @@ export class PortalRuntime {
                     visibility: normalizeVisibility(safeParams.visibility, this.authz.defaultVisibility),
                     ...(repo ? { repo } : {}),
                     ...(gitRef ? { gitRef } : {}),
+                    ...(compute === "devbox" ? { requireOwnerAffinity: true } : {}),
                     ...(callerAuth ? { callerAuth } : {}),
                 });
                 return this._ensureCreatedPlacement(created, safeParams.groupId, authContext, isAdmin);
             }
             case "createSessionForAgent": {
                 await this._assertPlacementGroupOwned(safeParams.groupId, authContext, { isAdmin });
-                const repo = validateRepoParam(safeParams.repo, await this._serviceableRepos());
+                const compute = validateComputeParam(safeParams.compute);
+                const repo = compute === "devbox"
+                    ? normalizeRepoParam(safeParams.repo)
+                    : validateRepoParam(safeParams.repo, await this._serviceableRepos());
                 const gitRef = validateGitRefParam(safeParams.gitRef);
                 const callerAuth = validateCallerAuthParam(safeParams.callerAuth);
+                const model = compute === "devbox"
+                    ? await this._resolveDevboxModel(owner, repo, isAdmin, safeParams.model)
+                    : safeParams.model;
                 const created = await this.transport.createSessionForAgent(safeParams.agentName, {
-                    model: safeParams.model,
+                    model,
                     reasoningEffort: safeParams.reasoningEffort,
                     contextTier: safeParams.contextTier,
                     title: safeParams.title,
@@ -1365,6 +1490,7 @@ export class PortalRuntime {
                     visibility: normalizeVisibility(safeParams.visibility, this.authz.defaultVisibility),
                     ...(repo ? { repo } : {}),
                     ...(gitRef ? { gitRef } : {}),
+                    ...(compute === "devbox" ? { requireOwnerAffinity: true } : {}),
                     ...(callerAuth ? { callerAuth } : {}),
                 });
                 return this._ensureCreatedPlacement(created, safeParams.groupId, authContext, isAdmin);
@@ -1674,13 +1800,23 @@ export class PortalRuntime {
                 return this.transport.deleteSession(safeParams.sessionId);
             case "restartSystemSession":
                 return this.transport.restartSystemSession(safeParams.agentIdOrSessionId, safeParams.options || {});
-            case "setSessionModel":
-                return this.transport.setSessionModel(safeParams.sessionId, safeParams.options || {});
+            case "setSessionModel": {
+                const options = safeParams.options || {};
+                const model = await this._resolveSessionModelForPlacement(
+                    safeParams.sessionId,
+                    options.model,
+                );
+                return this.transport.setSessionModel(safeParams.sessionId, { ...options, model });
+            }
             case "stopSessionTurn":
                 return this.transport.stopSessionTurn(safeParams.sessionId, safeParams.options || {});
             case "deleteSessionGroup":
                 return this.transport.deleteSessionGroup(safeParams.groupId);
             case "listModels":
+                if (validateComputeParam(safeParams.compute) === "devbox") {
+                    const repo = normalizeRepoParam(safeParams.repo);
+                    return this._modelsForDevbox(owner, repo, isAdmin);
+                }
                 return this.transport.listModels({ principal: owner, isAdmin });
             case "listArtifacts":
                 return this.transport.listArtifacts(safeParams.sessionId);

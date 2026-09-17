@@ -175,6 +175,8 @@ export class PilotSwarmClient {
         parentSessionId?: string;
         /** Nesting level for sub-agent depth tracking. */
         nestingLevel?: number;
+        /** Web API placement. Direct-mode clients must omit this option. */
+        compute?: "cluster" | "devbox";
         /** Agent ID to bind this session to (for policy validation and title prefixing). */
         agentId?: string;
         /** Authenticated owner to associate with the new session. */
@@ -198,6 +200,9 @@ export class PilotSwarmClient {
          */
         callerAuth?: CallerAuthInput | null;
     }): Promise<PilotSwarmSession> {
+        if (config?.compute !== undefined) {
+            throw new Error("createSession({ compute }) is available only when PilotSwarmClient is constructed with apiUrl.");
+        }
         // ── Policy enforcement (client-side) ─────────────────
         const policy = this._sessionPolicy;
         const isSubAgent = !!config?.parentSessionId;
@@ -378,6 +383,8 @@ export class PilotSwarmClient {
         initialPrompt?: string;
         /** Repo-affinity routing: target repo enlistment for this session. */
         repo?: string;
+        /** Web API placement. Direct-mode clients must omit this option. */
+        compute?: "cluster" | "devbox";
         /** Non-default branch this session's agent lives on (git-hydration). */
         gitRef?: string;
         owner?: SessionOwnerInfo | null;
@@ -400,6 +407,7 @@ export class PilotSwarmClient {
             contextTier: opts?.contextTier,
             toolNames: opts?.toolNames,
             repo: opts?.repo,
+            compute: opts?.compute,
             gitRef: opts?.gitRef,
             callerAuth: opts?.callerAuth ?? null,
             onUserInputRequest: opts?.onUserInputRequest,
@@ -767,9 +775,24 @@ export class PilotSwarmClient {
     }
 
     private async _resolveCreationModel(
-        config: Pick<ManagedSessionConfig, "model" | "reasoningEffort" | "contextTier"> & { owner?: SessionOwnerInfo | null },
+        config: Pick<ManagedSessionConfig, "model" | "reasoningEffort" | "contextTier">
+            & { owner?: SessionOwnerInfo | null; requireOwnerAffinity?: boolean },
         system: boolean,
     ): Promise<RuntimeModelSelection | null> {
+        if (!system && config.requireOwnerAffinity && config.model) {
+            const model = config.model.trim();
+            const separator = model.indexOf(":");
+            if (separator <= 0 || separator === model.length - 1) {
+                throw new Error("Owner-affinitized sessions require an exact provider:model value.");
+            }
+            return {
+                provider: model.slice(0, separator),
+                model,
+                reasoning: config.reasoningEffort ?? null,
+                context: config.contextTier ?? null,
+                source: "explicit",
+            };
+        }
         const store = this._catalog?.providers;
         if (!store) return null;
         if (!this._modelProviderTypes) {

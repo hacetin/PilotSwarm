@@ -88,6 +88,7 @@ export function registerHandoffActivity(runtime: any, name: keyof typeof HANDOFF
 export type OwnerAffinityPrincipal = Pick<SessionOwnerInfo, "provider" | "subject">;
 
 const OWNER_TAG_PREFIX = "owner:v1:";
+const MODEL_TAG_PREFIX = "model:v1:";
 
 function normalizedOwner(owner: OwnerAffinityPrincipal): OwnerAffinityPrincipal {
     const provider = owner.provider?.trim().toLowerCase();
@@ -111,6 +112,32 @@ function ownerScopedTag(owner: OwnerAffinityPrincipal, baseTag: string): string 
     return `${OWNER_TAG_PREFIX}${ownerAffinityKey(owner)}|${baseTag}`;
 }
 
+/** Compact stable capability key so routing tags stay bounded as model names grow. */
+export function modelCapabilityTag(model: string): string {
+    const normalized = model.trim();
+    if (!normalized) throw new Error("Model capability routing requires a model");
+    return `${MODEL_TAG_PREFIX}${createHash("sha256").update(normalized).digest("hex").slice(0, 16)}`;
+}
+
+/** Add model-specific variants of every repo/generic worker route. */
+export function addWorkerModelRoutingTags(
+    filter: TagFilter | undefined,
+    models: readonly string[],
+): TagFilter | undefined {
+    if (!filter || filter === "none" || filter === "defaultOnly") return filter;
+    if (filter === "any") throw new Error('PilotSwarm workers cannot use workerTagFilter "any"');
+    const tags = "defaultAnd" in filter ? filter.defaultAnd : filter.tags;
+    const routes = tags.filter(
+        (tag) => isOwnerScopedRoutingTag(tag)
+            && (repoFromRoutingTag(tag) !== null || tag.endsWith("|generic")),
+    );
+    const modelRoutes = routes.flatMap(
+        (tag) => models.map((model) => `${tag}|${modelCapabilityTag(model)}`),
+    );
+    const combined = [...new Set([...tags, ...modelRoutes])];
+    return "defaultAnd" in filter ? { defaultAnd: combined } : { tags: combined };
+}
+
 export function isOwnerScopedRoutingTag(tag: string): boolean {
     return tag.startsWith(OWNER_TAG_PREFIX);
 }
@@ -123,10 +150,13 @@ export function isOwnerScopedRoutingTag(tag: string): boolean {
  * still represents through the versioned activity name.
  */
 export function runTurnRoutingTag(
-    config: Pick<SerializableSessionConfig, "repo" | "ownerAffinity">,
+    config: Pick<SerializableSessionConfig, "repo" | "ownerAffinity" | "model">,
 ): string {
     const baseTag = config.repo ? `repo:${config.repo}` : "generic";
-    return config.ownerAffinity ? ownerScopedTag(config.ownerAffinity, baseTag) : baseTag;
+    const routedTag = config.ownerAffinity && config.model
+        ? `${baseTag}|${modelCapabilityTag(config.model)}`
+        : baseTag;
+    return config.ownerAffinity ? ownerScopedTag(config.ownerAffinity, routedTag) : routedTag;
 }
 
 /**
@@ -190,7 +220,8 @@ export function repoFromRoutingTag(tag: string): string | null {
     const baseTag = isOwnerScopedRoutingTag(tag) && separator >= 0
         ? tag.slice(separator + 1)
         : tag;
-    return baseTag.startsWith("repo:") ? baseTag.slice("repo:".length) || null : null;
+    if (!baseTag.startsWith("repo:")) return null;
+    return baseTag.slice("repo:".length).split("|", 1)[0] || null;
 }
 
 /** Resolve the personal worker identity supplied by trusted host configuration. */

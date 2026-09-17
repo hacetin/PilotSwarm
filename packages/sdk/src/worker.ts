@@ -34,6 +34,7 @@ import { composeSystemPrompt, mergePromptSections } from "./prompt-layering.js";
 import { buildSchemaIdentifier } from "./prompt-layers.js";
 import { DEFAULT_TURN_TIMEOUT_MS, DEFAULT_TURN_INACTIVITY_TIMEOUT_MS, ManagedSession } from "./managed-session.js";
 import {
+    addWorkerModelRoutingTags,
     isOwnerScopedRoutingTag,
     repoFromRoutingTag,
     requireWorkerRoutingTag,
@@ -878,12 +879,13 @@ export class PilotSwarmWorker {
         // process-stable registrar info build — which advertises repo affinity
         // (info.repos / info.routingTags) derived from this filter. Resolving
         // it afterwards permanently locks repos:null into the registry row.
-        const workerTagFilter = resolveWorkerTagFilter(
+        const workerModels = this.sessionManager.configuredWorkerModels();
+        const workerTagFilter = addWorkerModelRoutingTags(resolveWorkerTagFilter(
             this.config.workerTagFilter,
             process.env.PILOTSWARM_WORKER_TAGS,
             process.env.PILOTSWARM_WORKER_TAG_MODE,
             this.config.workerOwner,
-        );
+        ), workerModels);
         // Remember the resolved filter so the heartbeat can surface repo
         // affinity into the workers row (see _buildRegistrarInfo -> info.repos).
         this._workerTagFilter = workerTagFilter;
@@ -1114,6 +1116,13 @@ export class PilotSwarmWorker {
         if (!this._agentPackagesTimer) {
             this._startWorkerRegistryHeartbeat();
         }
+        void this.sessionManager.refreshWorkerModels()
+            .then(() => this._reportAgentWorkerState())
+            .catch((error) => {
+                console.warn(
+                    `[PilotSwarmWorker] worker model capability refresh failed: ${error?.message ?? error}`,
+                );
+            });
 
         await new Promise(r => setTimeout(r, 200));
 
@@ -1544,13 +1553,19 @@ export class PilotSwarmWorker {
         // `workers.tags` column (vs. stuffing into the free-form `info` JSON)
         // would also let consumers query affinity without deserializing info.
         const tagFilter = this._workerTagFilter;
-        const routingTags =
+        const runtimeRoutingTags =
             tagFilter && typeof tagFilter === "object"
                 ? [
                     ...("defaultAnd" in tagFilter ? tagFilter.defaultAnd : []),
                     ...("tags" in tagFilter ? tagFilter.tags : []),
                 ]
                 : [];
+        // Model-capability variants are runtime routing implementation detail.
+        // Advertise the compact model list separately instead of multiplying
+        // heartbeat payload size by every repo/model combination.
+        const routingTags = runtimeRoutingTags.filter(
+            (tag) => !tag.includes("|model:v1:"),
+        );
         const repos = routingTags
             .filter((tag) => !isOwnerScopedRoutingTag(tag))
             .map(repoFromRoutingTag)
@@ -1637,6 +1652,15 @@ export class PilotSwarmWorker {
      */
     private async _reportAgentWorkerState(): Promise<void> {
         if (!this._catalog || this._registryReporting) return;
+        // Heartbeats reuse the current snapshot immediately and trigger a
+        // single-flight refresh when its TTL expires. The next heartbeat
+        // publishes the refreshed value without blocking registry liveness on
+        // an external model-catalog request.
+        void this.sessionManager.refreshWorkerModels().catch((error) => {
+            console.warn(
+                `[PilotSwarmWorker] worker model capability refresh failed: ${error?.message ?? error}`,
+            );
+        });
         this._registryReporting = true;
         try {
             await this._catalog.workerHeartbeat({
@@ -1644,7 +1668,10 @@ export class PilotSwarmWorker {
                 pool: this._workerPool,
                 phase: this._workerPhase,
                 owner: this.config.workerOwner ?? null,
-                info: this._buildRegistrarInfo(),
+                info: {
+                    ...this._buildRegistrarInfo(),
+                    models: this.sessionManager.currentWorkerModels(),
+                },
                 health: this._collectWorkerHealth(),
                 state: {
                     "feature-flags": { ...this._featureFlags?.state,

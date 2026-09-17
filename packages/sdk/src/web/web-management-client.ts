@@ -634,8 +634,8 @@ export class WebPilotSwarmManagementClient {
 
     // ── Models (async in web mode — always `await`) ─────────────────────
 
-    async listModels(): Promise<any[]> {
-        return this._api.call("listModels");
+    async listModels(options: { compute?: "cluster" | "devbox"; repo?: string } = {}): Promise<any[]> {
+        return this._api.call("listModels", options);
     }
 
     async getModelsByProvider(): Promise<any[]> {
@@ -965,7 +965,7 @@ export class WebPilotSwarmManagementClient {
     }
 
     async listRuntimeModels(_viewer?: unknown): Promise<any> {
-        return this.ops.listModels();
+        return this.ops.listModels({});
     }
 
     async setModelDefault(_viewer: unknown, input: { scope: "user" | "cluster"; provider: string | null; model: string | null; reasoningEffort?: string | null; contextTier?: string | null }): Promise<any> {

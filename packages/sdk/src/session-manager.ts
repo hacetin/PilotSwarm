@@ -791,6 +791,158 @@ export class SessionManager {
         return registry.getModelSummaryForLLM(allowed ?? undefined);
     }
 
+    /**
+     * Models this worker can currently execute. GitHub models are intersected
+     * with the signed-in Copilot account's live entitlement list; configured
+     * BYOK/workload-identity providers are already worker-local capabilities.
+     */
+    configuredWorkerModels(): string[] {
+        if (this.workerModelRoutingUniverse) {
+            return [...this.workerModelRoutingUniverse];
+        }
+        const registry = this.workerDefaults.modelProviders;
+        if (!registry) return [];
+        this.workerModelRoutingUniverse = registry.allModels
+            .filter((descriptor) => Boolean(registry.resolve(descriptor.qualifiedName)))
+            .map((descriptor) => descriptor.qualifiedName)
+            .slice(0, 64);
+        return [...this.workerModelRoutingUniverse];
+    }
+
+    currentWorkerModels(): { defaultModel?: string; available: string[] } {
+        return this.workerModelCache?.value ?? { available: [] };
+    }
+
+    async refreshWorkerModels(): Promise<{ defaultModel?: string; available: string[] }> {
+        if (this.workerModelCache && Date.now() - this.workerModelCache.fetchedAt < 300_000) {
+            return this.workerModelCache.value;
+        }
+        if (this.workerModelRefreshPromise) return this.workerModelRefreshPromise;
+        this.workerModelRefreshPromise = this._discoverWorkerModels();
+        try {
+            return await this.workerModelRefreshPromise;
+        } finally {
+            this.workerModelRefreshPromise = null;
+        }
+    }
+
+    private async _discoverWorkerModels(): Promise<{ defaultModel?: string; available: string[] }> {
+        const registry = this.workerDefaults.modelProviders;
+        if (!registry) return { available: [] };
+
+        // Routing and advertisement must use the same bounded universe.
+        // Discovery may remove unavailable models, but must never introduce a
+        // model for which this process did not register a routing tag.
+        const configured = this.configuredWorkerModels();
+        const configuredSet = new Set(configured);
+        const available: string[] = [];
+        const githubDescriptors = registry.allModels.filter(
+            (model) => configuredSet.has(model.qualifiedName),
+        ).filter(
+            (model) => model.providerType === "github" || model.providerType === "github-ambient",
+        );
+        const availableGitHubModels = new Set<string>();
+        let githubDiscoveryFailed = false;
+        const ambientAvailable = this._hasSignedInCopilotUser();
+        const discoveryGroups = new Map<string, {
+            token?: string;
+            descriptors: typeof githubDescriptors;
+        }>();
+        for (const descriptor of githubDescriptors) {
+            const resolved = registry.resolve(descriptor.qualifiedName);
+            const token = resolved?.githubToken || this.githubToken;
+            if (!token && !ambientAvailable) continue;
+            const key = token ? `token:${token}` : "ambient";
+            const group = discoveryGroups.get(key) ?? { token, descriptors: [] };
+            group.descriptors.push(descriptor);
+            discoveryGroups.set(key, group);
+        }
+        for (const group of discoveryGroups.values()) {
+            try {
+                const modelIds = await this._discoverGitHubWorkerModelIds(group.token);
+                for (const descriptor of group.descriptors) {
+                    if (modelIds.has(descriptor.modelName)) {
+                        availableGitHubModels.add(descriptor.qualifiedName);
+                    }
+                }
+            } catch (error) {
+                console.warn(
+                    `[PilotSwarmWorker] GitHub Copilot model discovery failed: ${normalizeError(error).message}`,
+                );
+                githubDiscoveryFailed = true;
+            }
+        }
+
+        for (const descriptor of registry.allModels) {
+            if (!configuredSet.has(descriptor.qualifiedName)) continue;
+            const resolved = registry.resolve(descriptor.qualifiedName);
+            if (!resolved) continue;
+            if (resolved.type === "github" || resolved.type === "github-ambient") {
+                if (availableGitHubModels.has(descriptor.qualifiedName)) {
+                    available.push(descriptor.qualifiedName);
+                }
+            } else if (resolved.usesWorkloadIdentity || resolved.sdkProvider?.apiKey) {
+                available.push(descriptor.qualifiedName);
+            }
+        }
+        const bounded = [...new Set(available)];
+        const value = {
+            ...(registry.defaultModel && bounded.includes(registry.defaultModel)
+                ? { defaultModel: registry.defaultModel }
+                : {}),
+            available: bounded,
+        };
+        if (githubDiscoveryFailed && this.workerModelCache) {
+            this.workerModelCache = {
+                fetchedAt: Date.now(),
+                value: this.workerModelCache.value,
+            };
+            return this.workerModelCache.value;
+        }
+        this.workerModelCache = { fetchedAt: Date.now(), value };
+        return value;
+    }
+
+    private async _discoverGitHubWorkerModelIds(token?: string): Promise<Set<string>> {
+        const client = createCopilotClient({
+            ...(token ? { gitHubToken: token } : {}),
+            useLoggedInUser: !token,
+            logLevel: "error",
+            env: {
+                ...process.env,
+                COPILOT_HOME: path.dirname(this.sessionStateDir),
+            },
+        });
+        try {
+            let timeout: ReturnType<typeof setTimeout> | undefined;
+            const discovery = (async () => {
+                await client.start();
+                return client.listModels();
+            })();
+            const models = await Promise.race([
+                discovery,
+                new Promise<never>((_, reject) => {
+                    timeout = setTimeout(
+                        () => reject(new Error("GitHub Copilot model discovery timed out after 30s")),
+                        30_000,
+                    );
+                    timeout.unref?.();
+                }),
+            ]).finally(() => {
+                if (timeout) clearTimeout(timeout);
+            });
+            return new Set(
+                models
+                    .filter((model) => model.id !== "auto")
+                    .filter((model) => model.policy?.state !== "disabled")
+                    .filter((model) => model.policy?.state !== "unconfigured")
+                    .map((model) => model.id),
+            );
+        } finally {
+            await client.stop().catch(() => []);
+        }
+    }
+
     async normalizeModelRefForSession(
         sessionId: string,
         model: string,
@@ -872,6 +1024,15 @@ export class SessionManager {
         const normalized = await this.normalizeModelRefForSession(
             sessionId, model, { requireQualified: true },
         );
+        const routing = await this.sessionCatalog?.getSessionRouting?.(sessionId);
+        if (
+            routing?.ownerAffinityRequired === true
+            && !this.currentWorkerModels().available.includes(normalized)
+        ) {
+            throw new Error(
+                `Model ${normalized} is not advertised by this owner-affinitized worker.`,
+            );
+        }
         const descriptor = this.workerDefaults.modelProviders?.getDescriptor(normalized);
         if (reasoningEffort) {
             const supported = descriptor?.supportedReasoningEfforts ?? [];
@@ -890,6 +1051,15 @@ export class SessionManager {
      * cache would leak one identity's catalog onto another's sessions.
      */
     private modelCatalogCaches = new Map<string, { fetchedAt: number; models: Array<{ id: string; capabilities?: any }> }>();
+    private workerModelCache: {
+        fetchedAt: number;
+        value: { defaultModel?: string; available: string[] };
+    } | null = null;
+    private workerModelRoutingUniverse: string[] | null = null;
+    private workerModelRefreshPromise: Promise<{
+        defaultModel?: string;
+        available: string[];
+    }> | null = null;
     /**
      * Resolve whether a session's model can be shown images, plus the
      * provider's vision limits. `modelRef` is the session-config value
@@ -1060,7 +1230,41 @@ export class SessionManager {
      * getOrCreate re-resolves.
      */
     setModelProviders(registry: import("./model-providers.js").ModelProviderRegistry | null): void {
+        const previousRegistry = this.workerDefaults.modelProviders;
         this.workerDefaults.modelProviders = registry ?? undefined;
+        // The routing universe is process-stable because the runtime's
+        // activity filter is registered once at worker startup. A provider
+        // refresh can remove advertised capabilities immediately, but newly
+        // configured models require a worker restart before they are routable.
+        if (!this.workerModelRoutingUniverse) {
+            this.workerModelCache = null;
+            return;
+        }
+        const resolvableModels = (
+            candidate: import("./model-providers.js").ModelProviderRegistry | null | undefined,
+        ) => this.workerModelRoutingUniverse!.filter((model) => Boolean(candidate?.resolve(model)));
+        const previousModels = resolvableModels(previousRegistry);
+        const nextModels = resolvableModels(registry);
+        if (
+            previousModels.length === nextModels.length
+            && previousModels.every((model, index) => model === nextModels[index])
+        ) {
+            return;
+        }
+        if (this.workerModelCache) {
+            const nextSet = new Set(nextModels);
+            const available = this.workerModelCache.value.available.filter((model) => nextSet.has(model));
+            this.workerModelCache = {
+                fetchedAt: 0,
+                value: {
+                    ...(this.workerModelCache.value.defaultModel
+                        && available.includes(this.workerModelCache.value.defaultModel)
+                        ? { defaultModel: this.workerModelCache.value.defaultModel }
+                        : {}),
+                    available,
+                },
+            };
+        }
     }
 
     setModelProvidersRefresher(refresh: (() => Promise<void>) | null): void {
@@ -1891,7 +2095,8 @@ export class SessionManager {
             }
         }
         const byokOpenAi = needsByokRequestCompatibility(resolvedProviderConfig.provider);
-        const desiredClientKey = (byokOpenAi ? BYOK_CLIENT_PREFIX : "") + (userGithubToken || "");
+        const effectiveGithubToken = userGithubToken || resolvedProvider?.githubToken;
+        const desiredClientKey = (byokOpenAi ? BYOK_CLIENT_PREFIX : "") + (effectiveGithubToken || "");
         const previousClientKey = this.sessionClientKeys.get(sessionId);
         if (previousClientKey !== undefined && previousClientKey !== desiredClientKey) {
             // The credential or native/BYOK transport changed since we last
@@ -1991,7 +2196,7 @@ export class SessionManager {
                 }
             }
         }
-        const client = await this.ensureClient(userGithubToken, byokOpenAi);
+        const client = await this.ensureClient(effectiveGithubToken, byokOpenAi);
         this.sessionClientKeys.set(sessionId, desiredClientKey);
         const sessionDir = path.join(this.sessionStateDir, sessionId);
         const sessionWorkspace = this.workerDefaults.sessionWorkspaceManager

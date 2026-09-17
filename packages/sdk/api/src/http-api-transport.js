@@ -487,8 +487,8 @@ export class HttpApiTransport {
 
     // ── Models ──────────────────────────────────────────────────────────
 
-    async listModels() {
-        return this.api.call("listModels");
+    async listModels(options = {}) {
+        return this.api.call("listModels", options);
     }
 
     // ── Provider budgets (docs/proposals/providers-and-budgets.md) ──────

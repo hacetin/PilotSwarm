@@ -122,6 +122,40 @@ test("owner-scoped repo workers do not advertise global repo serviceability", ()
     assert.deepEqual(info.ownerScopedRepos, ["sample-repo"]);
 });
 
+test("worker heartbeat advertises a compact model capability list", async () => {
+    const instance = worker();
+    let heartbeat;
+    let refreshes = 0;
+    instance._catalog = {
+        async workerHeartbeat(input) {
+            heartbeat = input;
+            return [];
+        },
+    };
+    instance.sessionManager.refreshWorkerModels = async () => {
+        refreshes += 1;
+        return instance.sessionManager.currentWorkerModels();
+    };
+    instance.sessionManager.currentWorkerModels = () => ({
+        defaultModel: "github-copilot:claude-sonnet-5",
+        available: Array.from(
+            { length: 64 },
+            (_, index) => `github-copilot:model-${index}`,
+        ),
+    });
+
+    await instance._reportAgentWorkerState();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(refreshes, 1);
+    assert.equal(heartbeat.info.models.available.length, 64);
+    assert.equal(
+        JSON.stringify(heartbeat.info.models).length < 3_000,
+        true,
+        "model capability heartbeat payload remains bounded",
+    );
+});
+
 test("worker provenance is explicit and stable for the process lifetime", () => {
     withProvenanceEnv({
         PILOTSWARM_WORKER_DISPLAY_NAME: "AKS worker",
